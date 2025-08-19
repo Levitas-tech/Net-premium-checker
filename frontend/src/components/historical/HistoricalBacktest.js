@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import axios from 'axios';
 import { Calendar, Play, BarChart3, Download, AlertCircle, CheckCircle, XCircle, X } from 'lucide-react';
@@ -11,12 +11,16 @@ const HistoricalBacktest = () => {
   const [backtestName, setBacktestName] = useState('');
   const [backtestDescription, setBacktestDescription] = useState('');
   const [connectionStatus, setConnectionStatus] = useState('checking'); // checking, connected, failed
-  const [selectedBacktest, setSelectedBacktest] = useState(null);
-  const [showResults, setShowResults] = useState(false);
-  const [showSummary, setShowSummary] = useState(false);
-  const [showAllResults, setShowAllResults] = useState(false);
+  const [expandedBacktests, setExpandedBacktests] = useState(new Set()); // Track which backtests are expanded
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  
+  // New state for better navigation
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [backtestsPerPage] = useState(10);
+  const [selectedBacktestForEdit, setSelectedBacktestForEdit] = useState(null);
   
   const queryClient = useQueryClient();
 
@@ -37,6 +41,11 @@ const HistoricalBacktest = () => {
     
     checkConnection();
   }, []);
+
+  // Reset to page 1 when search or filter changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter]);
 
   // Get available expiries when date changes or when legs change
   useEffect(() => {
@@ -112,157 +121,7 @@ const HistoricalBacktest = () => {
       }
     }
   );
-
-  // Get backtest results
-  const { data: backtestResults, isLoading: loadingResults } = useQuery(
-    ['backtest-results', selectedBacktest?.id],
-    () => axios.get(`/historical/backtest/${selectedBacktest.id}/results`),
-    {
-      enabled: !!selectedBacktest && showResults,
-      onError: (error) => {
-        setErrorMessage('Failed to load backtest results');
-        setTimeout(() => setErrorMessage(''), 5000);
-      }
-    }
-  );
-
-  // Get backtest summary
-  const { data: backtestSummary, isLoading: loadingSummary } = useQuery(
-    ['backtest-summary', selectedBacktest?.id],
-    () => axios.get(`/historical/backtest/${selectedBacktest.id}/summary`),
-    {
-      enabled: !!selectedBacktest && showSummary,
-      onError: (error) => {
-        setErrorMessage('Failed to load backtest summary');
-        setTimeout(() => setErrorMessage(''), 5000);
-      }
-    }
-  );
-
-  // Download results as Excel
-  const downloadExcel = () => {
-    if (!backtestResults?.data?.results) return;
-    
-    // Create worksheet data - HARDCODED to exactly 2 columns
-    const headers = ['DateTime', 'Net Premium'];
-    
-    // Process each result to ensure correct mapping
-    const worksheetData = backtestResults.data.results.map((result, index) => {
-      // Column 1: DateTime - combine date and time from ISO format
-      let dateTime = 'N/A';
-      if (result.datetime) {
-        try {
-          const dt = new Date(result.datetime);
-          if (!isNaN(dt.getTime())) {
-            // Force Indian format: DD-MM-YYYY, HH:MM:SS am/pm
-            const day = dt.getDate().toString().padStart(2, '0');
-            const month = (dt.getMonth() + 1).toString().padStart(2, '0');
-            const year = dt.getFullYear();
-            const hours = dt.getHours();
-            const minutes = dt.getMinutes().toString().padStart(2, '0');
-            const seconds = dt.getSeconds().toString().padStart(2, '0');
-            const ampm = hours >= 12 ? 'pm' : 'am';
-            const displayHours = (hours % 12 || 12).toString().padStart(2, '0');
-            
-            dateTime = `${day}-${month}-${year}, ${displayHours}:${minutes}:${seconds} ${ampm}`;
-          } else {
-            dateTime = result.datetime;
-          }
-        } catch (e) {
-          dateTime = result.datetime;
-        }
-      }
-      
-      // Column 2: Net Premium - ensure it's a number
-      let netPremium = 'N/A';
-      if (result.net_premium !== undefined && typeof result.net_premium === 'number') {
-        netPremium = result.net_premium.toFixed(2);
-      }
-      
-      // Return exactly 2 columns as array
-      return [dateTime, netPremium];
-    });
-    
-    // Combine headers and data
-    const allData = [headers, ...worksheetData];
-    
-    // Convert to XLSX format and download
-    try {
-      // Create workbook and worksheet using xlsx library
-      const worksheet = XLSX.utils.aoa_to_sheet(allData);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Backtest Results');
-      
-      // Generate XLSX buffer and download
-      const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-      
-      // Create and download file
-      const blob = new Blob([xlsxBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      const link = document.createElement('a');
-      const url = URL.createObjectURL(blob);
-      link.setAttribute('href', url);
-      link.setAttribute('download', `backtest_${selectedBacktest.id}_results.xlsx`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (error) {
-      // Fallback to CSV if XLSX fails
-      setErrorMessage('XLSX generation failed. Falling back to CSV format.');
-      setTimeout(() => setErrorMessage(''), 5000);
-      downloadAsCSV();
-    }
-  };
   
-  // Fallback CSV function
-  const downloadAsCSV = () => {
-    if (!backtestResults?.data?.results) return;
-    
-    const headers = ['DateTime', 'Net Premium'];
-    const csvRows = backtestResults.data.results.map((result, index) => {
-      let dateTime = 'N/A';
-      if (result.datetime) {
-        try {
-          const dt = new Date(result.datetime);
-          if (!isNaN(dt.getTime())) {
-            const day = dt.getDate().toString().padStart(2, '0');
-            const month = (dt.getMonth() + 1).toString().padStart(2, '0');
-            const year = dt.getFullYear();
-            const hours = dt.getHours();
-            const minutes = dt.getMinutes().toString().padStart(2, '0');
-            const seconds = dt.getSeconds().toString().padStart(2, '0');
-            const ampm = hours >= 12 ? 'pm' : 'am';
-            const displayHours = (hours % 12 || 12).toString().padStart(2, '0');
-            
-            dateTime = `${day}-${month}-${year}, ${displayHours}:${minutes}:${seconds} ${ampm}`;
-          } else {
-            dateTime = result.datetime;
-          }
-        } catch (e) {
-          dateTime = result.datetime;
-        }
-      }
-      
-      let netPremium = 'N/A';
-      if (result.net_premium !== undefined && typeof result.net_premium === 'number') {
-        netPremium = result.net_premium.toFixed(2);
-      }
-      
-      return `${dateTime},${netPremium}`;
-    });
-    
-    const csvContent = [headers.join(','), ...csvRows].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `backtest_${selectedBacktest.id}_results.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
   // Add a new leg
   const addLeg = () => {
     const newLeg = {
@@ -299,6 +158,87 @@ const HistoricalBacktest = () => {
     }));
   };
 
+  // Toggle backtest expansion
+  const toggleBacktestExpansion = (backtestId, viewType) => {
+    const key = `${backtestId}-${viewType}`;
+    const newExpanded = new Set(expandedBacktests);
+    
+    if (newExpanded.has(key)) {
+      newExpanded.delete(key);
+    } else {
+      // Close other views for this backtest
+      ['summary', 'results', 'error'].forEach(type => {
+        newExpanded.delete(`${backtestId}-${type}`);
+      });
+      newExpanded.add(key);
+    }
+    
+    setExpandedBacktests(newExpanded);
+  };
+
+  // Check if a backtest view is expanded
+  const isBacktestExpanded = (backtestId, viewType) => {
+    return expandedBacktests.has(`${backtestId}-${viewType}`);
+  };
+
+  // Load backtest legs into editor
+  const loadBacktestIntoEditor = (backtest) => {
+    setSelectedBacktestForEdit(backtest);
+    setBacktestName(backtest.name);
+    setBacktestDescription(backtest.description || '');
+    setSelectedDate(backtest.backtest_date);
+    
+    // Load the legs
+    if (backtest.legs && backtest.legs.length > 0) {
+      setLegs(backtest.legs.map(leg => ({
+        id: Date.now() + Math.random(), // Generate new IDs
+        index_name: leg.index_name,
+        strike: leg.strike,
+        option_type: leg.option_type,
+        expiry: leg.expiry,
+        action: leg.action,
+        lots: leg.lots
+      })));
+    }
+    
+    // Scroll to top to show the editor
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Filter and search backtests
+  const filteredBacktests = useMemo(() => {
+    if (!backtests?.data) return [];
+    
+    let filtered = backtests.data;
+    
+    // Apply search filter
+    if (searchTerm) {
+      filtered = filtered.filter(backtest => 
+        backtest.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (backtest.description && backtest.description.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+    }
+    
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(backtest => backtest.status === statusFilter);
+    }
+    
+    return filtered;
+  }, [backtests?.data, searchTerm, statusFilter]);
+
+  // Paginate backtests
+  const paginatedBacktests = useMemo(() => {
+    const startIndex = (currentPage - 1) * backtestsPerPage;
+    const endIndex = startIndex + backtestsPerPage;
+    return filteredBacktests.slice(startIndex, endIndex);
+  }, [filteredBacktests, currentPage, backtestsPerPage]);
+
+  // Calculate pagination info
+  const totalPages = Math.ceil(filteredBacktests.length / backtestsPerPage);
+  const hasNextPage = currentPage < totalPages;
+  const hasPrevPage = currentPage > 1;
+
   // Run the backtest
   const runBacktest = () => {
     if (!backtestName.trim()) {
@@ -327,6 +267,18 @@ const HistoricalBacktest = () => {
     };
 
     runBacktestMutation.mutate(backtestData);
+  };
+
+  // Clear editor and start fresh
+  const clearEditor = () => {
+    setSelectedBacktestForEdit(null);
+    setBacktestName('');
+    setBacktestDescription('');
+    setSelectedDate('');
+    setLegs([]);
+    setCurrentPage(1);
+    setSearchTerm('');
+    setStatusFilter('all');
   };
 
   // Format date for display
@@ -474,6 +426,29 @@ const HistoricalBacktest = () => {
 
             {/* Backtest Details */}
             <div className="mb-6">
+              {/* Loaded Backtest Indicator */}
+              {selectedBacktestForEdit && (
+                <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <BarChart3 className="h-5 w-5 text-blue-600" />
+                      <span className="text-sm font-medium text-blue-800">
+                        Editing: <strong>{selectedBacktestForEdit.name}</strong>
+                      </span>
+                      <span className="text-xs text-blue-600">
+                        (Loaded from previous backtest)
+                      </span>
+                    </div>
+                    <button
+                      onClick={clearEditor}
+                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                    >
+                      Start Fresh
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -627,466 +602,256 @@ const HistoricalBacktest = () => {
 
             {/* Previous Backtests */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Previous Backtests</h3>
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 gap-4">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  Previous Backtests ({filteredBacktests.length})
+                </h3>
+                
+                {/* Search and Filter Controls */}
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                  {/* Search */}
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search backtests..."
+                      value={searchTerm}
+                      onChange={(e) => {
+                        setSearchTerm(e.target.value);
+                        // setCurrentPage(1); // Reset to first page when searching
+                      }}
+                      className="pl-8 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
+                    />
+                    <svg className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                  </div>
+                  
+                  {/* Status Filter */}
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => {
+                      setStatusFilter(e.target.value);
+                      // setCurrentPage(1); // Reset to first page when filtering
+                    }}
+                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="completed">Completed</option>
+                    <option value="running">Running</option>
+                    <option value="failed">Failed</option>
+                  </select>
+                </div>
+              </div>
               
               {loadingBacktests ? (
-                <div className="text-center py-4">Loading...</div>
-              ) : backtestsError ? (
-                <div className="text-center py-4 text-red-600">
-                  <AlertCircle className="mx-auto h-8 w-8 mb-2" />
-                  Error loading backtests. Please try again.
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                  <p className="text-gray-600">Loading backtests...</p>
                 </div>
-              ) : backtests?.data?.length > 0 ? (
-                <div className="space-y-4">
-                  {backtests.data.map((backtest) => (
-                    <div key={backtest.id} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-semibold text-gray-900">{backtest.name}</h4>
-                          <p className="text-sm text-gray-600">{backtest.description}</p>
-                          <div className="text-sm text-gray-500 mt-1">
-                            Date: {formatDate(backtest.backtest_date)} | 
-                            Status: <span className={`font-medium ${
-                              backtest.status === 'completed' ? 'text-green-600' : 
-                              backtest.status === 'failed' ? 'text-red-600' : 'text-yellow-600'
-                            }`}>{backtest.status}</span> | 
-                            Legs: {backtest.total_legs}
+              ) : backtestsError ? (
+                <div className="text-center py-8 text-red-600">
+                  <AlertCircle className="mx-auto h-12 w-8 mb-4" />
+                  <p>Error loading backtests. Please try again.</p>
+                </div>
+              ) : filteredBacktests.length > 0 ? (
+                <>
+                  {/* Backtest List */}
+                  <div className="space-y-3 mb-6">
+                    {paginatedBacktests.map((backtest) => (
+                      <div key={backtest.id} className="border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+                        {/* Backtest Header */}
+                        <div className="p-4 bg-gray-50">
+                          <div className="flex flex-col sm:flex-row sm:items-start gap-3">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-2">
+                                <h4 className="font-semibold text-gray-900">{backtest.name}</h4>
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  backtest.status === 'completed' ? 'bg-green-100 text-green-800' : 
+                                  backtest.status === 'running' ? 'bg-yellow-100 text-yellow-800' : 
+                                  'bg-red-100 text-red-800'
+                                }`}>
+                                  {backtest.status}
+                                </span>
+                              </div>
+                              <p className="text-sm text-gray-600 mb-2">{backtest.description}</p>
+                              <div className="text-sm text-gray-500 mb-3">
+                                Date: {formatDate(backtest.backtest_date)}
+                              </div>
+                              
+                              {/* Leg Details Display */}
+                              {backtest.legs && backtest.legs.length > 0 && (
+                                <div className="space-y-2">
+                                  <div className="text-xs font-medium text-gray-600 uppercase tracking-wide">
+                                    Strategy Legs:
+                                  </div>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                    {backtest.legs.map((leg, index) => (
+                                      <div key={index} className="bg-white border border-gray-200 rounded px-2 py-1.5 text-xs">
+                                        <div className="flex items-center justify-between mb-1">
+                                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                            leg.action === 'Buy' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                                          }`}>
+                                            {leg.action}
+                                          </span>
+                                          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                            leg.option_type === 'CE' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'
+                                          }`}>
+                                            {leg.option_type}
+                                          </span>
+                                        </div>
+                                        <div className="space-y-0.5 text-gray-600">
+                                          <div className="flex justify-between">
+                                            <span>Index:</span>
+                                            <span className={`font-medium px-1 py-0.5 rounded text-xs ${
+                                              leg.index_name === 'NIFTY' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'
+                                            }`}>
+                                              {leg.index_name}
+                                            </span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span>Strike:</span>
+                                            <span className="font-medium">₹{leg.strike}</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span>Lots:</span>
+                                            <span className="font-medium">{leg.lots}</span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              {/* Load into Editor Button */}
+                              <button
+                                onClick={() => loadBacktestIntoEditor(backtest)}
+                                className="px-3 py-1 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700 transition-colors"
+                                title="Load this backtest's configuration into the editor above"
+                              >
+                                Load & Edit
+                              </button>
+                              
+                              {/* View Details Buttons */}
+                              {backtest.status === 'completed' && (
+                                <>
+                                  <button
+                                    onClick={() => toggleBacktestExpansion(backtest.id, 'results')}
+                                    className={`px-3 py-1 rounded text-sm transition-colors ${
+                                      isBacktestExpanded(backtest.id, 'results')
+                                        ? 'bg-blue-700 text-white'
+                                        : 'bg-blue-600 text-white hover:bg-blue-700'
+                                    }`}
+                                  >
+                                    {isBacktestExpanded(backtest.id, 'results') ? 'Hide Results' : 'Results'}
+                                  </button>
+                                  <button
+                                    onClick={() => toggleBacktestExpansion(backtest.id, 'summary')}
+                                    className={`px-3 py-1 rounded text-sm transition-colors ${
+                                      isBacktestExpanded(backtest.id, 'summary')
+                                        ? 'bg-green-700 text-white'
+                                        : 'bg-green-600 text-white hover:bg-green-700'
+                                    }`}
+                                  >
+                                    {isBacktestExpanded(backtest.id, 'summary') ? 'Hide Summary' : 'Summary'}
+                                  </button>
+                                </>
+                              )}
+                              {backtest.status === 'failed' && (
+                                <button
+                                  onClick={() => toggleBacktestExpansion(backtest.id, 'error')}
+                                  className={`px-3 py-1 rounded text-sm transition-colors ${
+                                    isBacktestExpanded(backtest.id, 'error')
+                                      ? 'bg-red-700 text-white'
+                                      : 'bg-red-600 text-white hover:bg-red-700'
+                                  }`}
+                                >
+                                  {isBacktestExpanded(backtest.id, 'error') ? 'Hide Error' : 'View Error'}
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
+
+                        {/* Expandable Content */}
+                        {isBacktestExpanded(backtest.id, 'summary') && (
+                          <BacktestSummary 
+                            backtest={backtest} 
+                            onClose={() => toggleBacktestExpansion(backtest.id, 'summary')}
+                          />
+                        )}
                         
-                        <div className="flex space-x-2">
-                          {backtest.status === 'completed' && (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setSelectedBacktest(backtest);
-                                  setShowResults(true);
-                                  setShowSummary(false);
-                                  setShowAllResults(false);
-                                }}
-                                className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                              >
-                                View Results
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedBacktest(backtest);
-                                  setShowSummary(true);
-                                  setShowResults(false);
-                                  setShowAllResults(false);
-                                }}
-                                className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
-                              >
-                                Summary
-                              </button>
-                            </>
-                          )}
-                          {backtest.status === 'failed' && (
-                            <button
-                              onClick={() => {
-                                setSelectedBacktest(backtest);
-                                setShowResults(false);
-                                setShowSummary(false);
-                                setShowAllResults(false);
-                              }}
-                              className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
-                            >
-                              View Error
-                            </button>
-                          )}
-                        </div>
+                        {isBacktestExpanded(backtest.id, 'results') && (
+                          <BacktestResults 
+                            backtest={backtest} 
+                            onClose={() => toggleBacktestExpansion(backtest.id, 'results')}
+                          />
+                        )}
+                        
+                        {isBacktestExpanded(backtest.id, 'error') && (
+                          <BacktestError 
+                            backtest={backtest} 
+                            onClose={() => toggleBacktestExpansion(backtest.id, 'error')}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+                      <div className="text-sm text-gray-700">
+                        Showing {((currentPage - 1) * backtestsPerPage) + 1} to {Math.min(currentPage * backtestsPerPage, filteredBacktests.length)} of {filteredBacktests.length} results
+                      </div>
+                      <div className="flex space-x-2">
+                        <button
+                          onClick={() => setCurrentPage(currentPage - 1)}
+                          disabled={!hasPrevPage}
+                          className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Previous
+                        </button>
+                        <span className="px-3 py-1 text-sm text-gray-700">
+                          Page {currentPage} of {totalPages}
+                        </span>
+                        <button
+                          onClick={() => setCurrentPage(currentPage + 1)}
+                          disabled={!hasNextPage}
+                          className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          Next
+                        </button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               ) : (
-                <div className="text-center py-8 text-gray-500">
-                  No backtests found. Create your first backtest above.
+                <div className="text-center py-12 text-gray-500">
+                  {searchTerm || statusFilter !== 'all' ? (
+                    <>
+                      <AlertCircle className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                      <p className="text-lg font-medium text-gray-900 mb-2">No backtests found</p>
+                      <p className="text-sm">Try adjusting your search or filter criteria.</p>
+                      <button
+                        onClick={clearEditor}
+                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                      >
+                        Clear Filters
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <BarChart3 className="mx-auto h-16 w-16 text-gray-400 mb-4" />
+                      <p className="text-lg font-medium text-gray-900 mb-2">No backtests yet</p>
+                      <p className="text-sm">Create your first backtest above to get started.</p>
+                    </>
+                  )}
                 </div>
               )}
             </div>
-
-            {/* Results and Summary Display */}
-            {loadingResults && showResults && selectedBacktest && (
-              <div className="mt-8 p-6 bg-white rounded-lg shadow-lg">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-xl font-bold text-gray-900">Backtest Results</h3>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={downloadExcel}
-                      className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
-                      title="Download all results as Excel file (DateTime + Net Premium only)"
-                    >
-                      <Download className="mr-1" /> Download Excel
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowResults(false);
-                        setSelectedBacktest(null);
-                      }}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                </div>
-                <p className="text-sm text-gray-600">Loading results for backtest ID: {selectedBacktest.id}...</p>
-              </div>
-            )}
-            
-            {/* Results Display */}
-            {backtestResults && showResults && selectedBacktest && (
-              <div className="mt-8 p-6 bg-white rounded-lg shadow-lg">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-xl font-bold text-gray-900">Backtest Results</h3>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={downloadExcel}
-                      className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
-                      title="Download all results as Excel file (DateTime + Net Premium only)"
-                    >
-                      <Download className="mr-1" /> Download Excel
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowResults(false);
-                        setSelectedBacktest(null);
-                      }}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-                </div>
-                <div className="mb-4">
-                  <h4 className="font-semibold text-gray-800 mb-2">Results for: {selectedBacktest.name}</h4>
-                  <p className="text-sm text-gray-600">Total data points: {backtestResults.data.results?.length || 0}</p>
-                  <p className="text-xs text-gray-500 mt-1">💡 Download button exports all {backtestResults.data.results?.length || 0} results as Excel (DateTime + Net Premium only)</p>
-                </div>
-                
-                {/* Leg Details Section */}
-                {selectedBacktest.legs && selectedBacktest.legs.length > 0 && (
-                  <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <h5 className="font-medium text-blue-800 mb-3 flex items-center">
-                      <BarChart3 className="mr-2 h-4 w-4" />
-                      Option Legs Used in This Backtest
-                    </h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {selectedBacktest.legs.map((leg, index) => (
-                        <div key={index} className="bg-white p-3 rounded border border-blue-200">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              leg.action === 'Buy' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                            }`}>
-                              {leg.action}
-                            </span>
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              leg.option_type === 'CE' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
-                            }`}>
-                              {leg.option_type}
-                            </span>
-                          </div>
-                          <div className="space-y-1 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Index:</span>
-                              <span className={`font-medium px-2 py-1 rounded text-xs ${
-                                leg.index_name === 'NIFTY' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
-                              }`}>
-                                {leg.index_name}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Strike:</span>
-                              <span className="font-medium">₹{leg.strike}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Expiry:</span>
-                              <span className="font-medium">{new Date(leg.expiry).toLocaleDateString('en-IN')}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Lots:</span>
-                              <span className="font-medium">{leg.lots}</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {backtestResults.data.results && backtestResults.data.results.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <div className="mb-4 flex justify-between items-center">
-                      <div className="text-sm text-gray-600">
-                        {showAllResults 
-                          ? `Showing all ${backtestResults.data.results.length} results`
-                          : `Showing first 20 results of ${backtestResults.data.results.length} total`
-                        }
-                      </div>
-                      {!showAllResults && backtestResults.data.results.length > 20 && (
-                        <button
-                          onClick={() => setShowAllResults(true)}
-                          className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                        >
-                          View All Results
-                        </button>
-                      )}
-                      {showAllResults && (
-                        <button
-                          onClick={() => setShowAllResults(false)}
-                          className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700"
-                        >
-                          Show First 20
-                        </button>
-                      )}
-                    </div>
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Net Premium</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {(showAllResults ? backtestResults.data.results : backtestResults.data.results.slice(0, 20)).map((result, index) => (
-                          <tr key={index} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {new Date(result.datetime).toLocaleString('en-IN')}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              ₹{result.net_premium?.toFixed(2) || 'N/A'}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {result.volume || 'N/A'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8 text-gray-500">
-                    <AlertCircle className="mx-auto h-12 w-12 mb-4" />
-                    <p>No results found for this backtest.</p>
-                    <p className="text-sm">The backtest may not have completed successfully.</p>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {loadingSummary && showSummary && selectedBacktest && (
-              <div className="mt-8 p-6 bg-white rounded-lg shadow-lg">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-xl font-bold text-gray-900">Backtest Summary</h3>
-                  <button
-                    onClick={() => {
-                      setShowSummary(false);
-                      setSelectedBacktest(null);
-                    }}
-                    className="text-gray-500 hover:text-gray-700"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-                <div className="mb-4">
-                  <h4 className="font-semibold text-gray-800 mb-2">Summary for: {selectedBacktest.name}</h4>
-                </div>
-                
-                {/* Leg Details Section in Summary */}
-                {selectedBacktest.legs && selectedBacktest.legs.length > 0 && (
-                  <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <h5 className="font-medium text-blue-800 mb-3 flex items-center">
-                      <BarChart3 className="mr-2 h-4 w-4" />
-                      Option Legs Used in This Backtest
-                    </h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {selectedBacktest.legs.map((leg, index) => (
-                        <div key={index} className="bg-white p-3 rounded border border-blue-200">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              leg.action === 'Buy' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                            }`}>
-                              {leg.action}
-                            </span>
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              leg.option_type === 'CE' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
-                            }`}>
-                              {leg.option_type}
-                            </span>
-                          </div>
-                          <div className="space-y-1 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Index:</span>
-                              <span className={`font-medium px-2 py-1 rounded text-xs ${
-                                leg.index_name === 'NIFTY' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
-                              }`}>
-                                {leg.index_name}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Strike:</span>
-                              <span className="font-medium">₹{leg.strike}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Expiry:</span>
-                              <span className="font-medium">{new Date(leg.expiry).toLocaleDateString('en-IN')}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Lots:</span>
-                              <span className="font-medium">{leg.lots}</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h5 className="font-medium text-gray-700 mb-2">Performance</h5>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Total P&L:</span>
-                        <span className={`font-medium ${backtestSummary.data.total_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          ₹{backtestSummary.data.total_pnl?.toFixed(2) || 'N/A'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Win Rate:</span>
-                        <span className="font-medium text-gray-900">
-                          {backtestSummary.data.win_rate?.toFixed(1) || 'N/A'}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Total Minutes:</span>
-                        <span className="font-medium text-gray-900">
-                          {backtestSummary.data.total_minutes || 'N/A'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="bg-gray-50 p-4 rounded-lg">
-                    <h5 className="font-medium text-gray-700 mb-2">Net Premium</h5>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Start:</span>
-                        <span className="font-medium text-gray-900">
-                          ₹{backtestSummary.data.net_premium_start?.toFixed(2) || 'N/A'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">End:</span>
-                        <span className="font-medium text-gray-900">
-                          ₹{backtestSummary.data.net_premium_end?.toFixed(2) || 'N/A'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Range:</span>
-                        <span className="font-medium text-gray-900">
-                          ₹{backtestSummary.data.net_premium_range?.min?.toFixed(2) || 'N/A'} - ₹{backtestSummary.data.net_premium_range?.max?.toFixed(2) || 'N/A'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Error Display for Failed Backtests */}
-            {selectedBacktest && selectedBacktest.status === 'failed' && !showResults && !showSummary && (
-              <div className="mt-8 p-6 bg-white rounded-lg shadow-lg">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-xl font-bold text-red-900">Backtest Failed</h3>
-                  <button
-                    onClick={() => {
-                      setSelectedBacktest(null);
-                    }}
-                    className="text-gray-500 hover:text-gray-700"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-                
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-                  <div className="flex items-start">
-                    <XCircle className="h-5 w-5 text-red-600 mt-0.5 mr-3 flex-shrink-0" />
-                    <div>
-                      <h4 className="font-medium text-red-800 mb-2">Backtest: {selectedBacktest.name}</h4>
-                      <p className="text-red-700 text-sm">
-                        This backtest failed because no market data was available for the selected date ({formatDate(selectedBacktest.backtest_date)}).
-                      </p>
-                      <p className="text-red-600 text-xs mt-2">
-                        <strong>Common reasons:</strong> Weekend, holiday, or data not collected for that date.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Leg Details Section */}
-                {selectedBacktest.legs && selectedBacktest.legs.length > 0 && (
-                  <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <h5 className="font-medium text-blue-800 mb-3 flex items-center">
-                      <BarChart3 className="mr-2 h-4 w-4" />
-                      Option Legs That Were Attempted
-                    </h5>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {selectedBacktest.legs.map((leg, index) => (
-                        <div key={index} className="bg-white p-3 rounded border border-blue-200">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              leg.action === 'Buy' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                            }`}>
-                              {leg.action}
-                            </span>
-                            <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              leg.option_type === 'CE' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
-                            }`}>
-                              {leg.option_type}
-                            </span>
-                          </div>
-                          <div className="space-y-1 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Index:</span>
-                              <span className={`font-medium px-2 py-1 rounded text-xs ${
-                                leg.index_name === 'NIFTY' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
-                              }`}>
-                                {leg.index_name}
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Strike:</span>
-                              <span className="font-medium">₹{leg.strike}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Expiry:</span>
-                              <span className="font-medium">{new Date(leg.expiry).toLocaleDateString('en-IN')}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Lots:</span>
-                              <span className="font-medium">{leg.lots}</span>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                <div className="text-center">
-                  <p className="text-sm text-gray-600 mb-4">
-                    Try selecting a different date that has market data available.
-                  </p>
-                  <button
-                    onClick={() => setSelectedBacktest(null)}
-                    className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            )}
           </>
         ) : (
           /* Show placeholder when not connected */
@@ -1101,6 +866,449 @@ const HistoricalBacktest = () => {
             </p>
           </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+// Backtest Summary Component
+const BacktestSummary = ({ backtest, onClose }) => {
+  const { data: backtestSummary, isLoading: loadingSummary } = useQuery(
+    ['backtest-summary', backtest.id],
+    () => axios.get(`/historical/backtest/${backtest.id}/summary`),
+    {
+      enabled: true,
+      onError: (error) => {
+        console.error('Failed to load backtest summary:', error);
+      }
+    }
+  );
+
+  return (
+    <div className="border-t border-gray-200 bg-white p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h5 className="text-lg font-semibold text-gray-900">Backtest Summary</h5>
+        <button
+          onClick={onClose}
+          className="text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+      
+      {loadingSummary ? (
+        <div className="text-center py-4">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="text-sm text-gray-600 mt-2">Loading summary...</p>
+        </div>
+      ) : backtestSummary?.data ? (
+        <>
+          {/* Leg Details Section */}
+          {backtest.legs && backtest.legs.length > 0 && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h6 className="font-medium text-blue-800 mb-3 flex items-center">
+                <BarChart3 className="mr-2 h-4 w-4" />
+                Option Legs Used in This Backtest
+              </h6>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {backtest.legs.map((leg, index) => (
+                  <div key={index} className="bg-white p-3 rounded border border-blue-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        leg.action === 'Buy' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {leg.action}
+                      </span>
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        leg.option_type === 'CE' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
+                      }`}>
+                        {leg.option_type}
+                      </span>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Index:</span>
+                        <span className={`font-medium px-2 py-1 rounded text-xs ${
+                          leg.index_name === 'NIFTY' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                        }`}>
+                          {leg.index_name}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Strike:</span>
+                        <span className="font-medium">₹{leg.strike}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Expiry:</span>
+                        <span className="font-medium">{new Date(leg.expiry).toLocaleDateString('en-IN')}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Lots:</span>
+                        <span className="font-medium">{leg.lots}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h6 className="font-medium text-gray-700 mb-2">Performance</h6>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Total P&L:</span>
+                  <span className={`font-medium ${backtestSummary.data.total_pnl >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    ₹{backtestSummary.data.total_pnl?.toFixed(2) || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Win Rate:</span>
+                  <span className="font-medium text-gray-900">
+                    {backtestSummary.data.win_rate?.toFixed(1) || 'N/A'}%
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Total Minutes:</span>
+                  <span className="font-medium text-gray-900">
+                    {backtestSummary.data.total_minutes || 'N/A'}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <h6 className="font-medium text-gray-700 mb-2">Net Premium</h6>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Start:</span>
+                  <span className="font-medium text-gray-900">
+                    ₹{backtestSummary.data.net_premium_start?.toFixed(2) || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">End:</span>
+                  <span className="font-medium text-gray-900">
+                    ₹{backtestSummary.data.net_premium_end?.toFixed(2) || 'N/A'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Range:</span>
+                  <span className="font-medium text-gray-900">
+                    ₹{backtestSummary.data.net_premium_range?.min?.toFixed(2) || 'N/A'} - ₹{backtestSummary.data.net_premium_range?.max?.toFixed(2) || 'N/A'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-4 text-gray-500">
+          <AlertCircle className="mx-auto h-8 w-8 mb-2" />
+          <p>Failed to load summary data.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Backtest Results Component
+const BacktestResults = ({ backtest, onClose }) => {
+  const [showAllResults, setShowAllResults] = useState(false);
+  const { data: backtestResults, isLoading: loadingResults } = useQuery(
+    ['backtest-results', backtest.id],
+    () => axios.get(`/historical/backtest/${backtest.id}/results`),
+    {
+      enabled: true,
+      onError: (error) => {
+        console.error('Failed to load backtest results:', error);
+      }
+    }
+  );
+
+  // Download results as Excel
+  const downloadExcel = () => {
+    if (!backtestResults?.data?.results) return;
+    
+    const headers = ['DateTime', 'Net Premium'];
+    const worksheetData = backtestResults.data.results.map((result) => {
+      let dateTime = 'N/A';
+      if (result.datetime) {
+        try {
+          const dt = new Date(result.datetime);
+          if (!isNaN(dt.getTime())) {
+            const day = dt.getDate().toString().padStart(2, '0');
+            const month = (dt.getMonth() + 1).toString().padStart(2, '0');
+            const year = dt.getFullYear();
+            const hours = dt.getHours();
+            const minutes = dt.getMinutes().toString().padStart(2, '0');
+            const seconds = dt.getSeconds().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? 'pm' : 'am';
+            const displayHours = (hours % 12 || 12).toString().padStart(2, '0');
+            
+            dateTime = `${day}-${month}-${year}, ${displayHours}:${minutes}:${seconds} ${ampm}`;
+          } else {
+            dateTime = result.datetime;
+          }
+        } catch (e) {
+          dateTime = result.datetime;
+        }
+      }
+      
+      let netPremium = 'N/A';
+      if (result.net_premium !== undefined && typeof result.net_premium === 'number') {
+        netPremium = result.net_premium.toFixed(2);
+      }
+      
+      return [dateTime, netPremium];
+    });
+    
+    const allData = [headers, ...worksheetData];
+    
+    try {
+      const worksheet = XLSX.utils.aoa_to_sheet(allData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Backtest Results');
+      
+      const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+      
+      const blob = new Blob([xlsxBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `backtest_${backtest.id}_results.xlsx`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error('XLSX generation failed:', error);
+    }
+  };
+
+  return (
+    <div className="border-t border-gray-200 bg-white p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h5 className="text-lg font-semibold text-gray-900">Backtest Results</h5>
+        <div className="flex space-x-2">
+          <button
+            onClick={downloadExcel}
+            className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
+            title="Download all results as Excel file"
+          >
+            <Download className="mr-1 h-4 w-4" /> Download Excel
+          </button>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+      
+      {loadingResults ? (
+        <div className="text-center py-4">
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="text-sm text-gray-600 mt-2">Loading results...</p>
+        </div>
+      ) : backtestResults?.data?.results ? (
+        <>
+          {/* Leg Details Section */}
+          {backtest.legs && backtest.legs.length > 0 && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+              <h6 className="font-medium text-blue-800 mb-3 flex items-center">
+                <BarChart3 className="mr-2 h-4 w-4" />
+                Option Legs Used in This Backtest
+              </h6>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {backtest.legs.map((leg, index) => (
+                  <div key={index} className="bg-white p-3 rounded border border-blue-200">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        leg.action === 'Buy' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                      }`}>
+                        {leg.action}
+                      </span>
+                      <span className={`px-2 py-1 rounded text-xs font-medium ${
+                        leg.option_type === 'CE' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
+                      }`}>
+                        {leg.option_type}
+                      </span>
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Index:</span>
+                        <span className={`font-medium px-2 py-1 rounded text-xs ${
+                          leg.index_name === 'NIFTY' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                        }`}>
+                          {leg.index_name}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Strike:</span>
+                        <span className="font-medium">₹{leg.strike}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Expiry:</span>
+                        <span className="font-medium">{new Date(leg.expiry).toLocaleDateString('en-IN')}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Lots:</span>
+                        <span className="font-medium">{leg.lots}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          
+          <div className="mb-4 flex justify-between items-center">
+            <div className="text-sm text-gray-600">
+              {showAllResults 
+                ? `Showing all ${backtestResults.data.results.length} results`
+                : `Showing first 20 results of ${backtestResults.data.results.length} total`
+              }
+            </div>
+            {!showAllResults && backtestResults.data.results.length > 20 && (
+              <button
+                onClick={() => setShowAllResults(true)}
+                className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+              >
+                View All Results
+              </button>
+            )}
+            {showAllResults && (
+              <button
+                onClick={() => setShowAllResults(false)}
+                className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700"
+              >
+                Show First 20
+              </button>
+            )}
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Net Premium</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {(showAllResults ? backtestResults.data.results : backtestResults.data.results.slice(0, 20)).map((result, index) => (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {new Date(result.datetime).toLocaleString('en-IN')}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      ₹{result.net_premium?.toFixed(2) || 'N/A'}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {result.volume || 'N/A'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        <div className="text-center py-4 text-gray-500">
+          <AlertCircle className="mx-auto h-8 w-8 mb-2" />
+          <p>No results found for this backtest.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Backtest Error Component
+const BacktestError = ({ backtest, onClose }) => {
+  return (
+    <div className="border-t border-gray-200 bg-white p-6">
+      <div className="flex justify-between items-center mb-4">
+        <h5 className="text-lg font-semibold text-red-900">Backtest Failed</h5>
+        <button
+          onClick={onClose}
+          className="text-gray-500 hover:text-gray-700 transition-colors"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+      
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+        <div className="flex items-start">
+          <XCircle className="h-5 w-5 text-red-600 mt-0.5 mr-3 flex-shrink-0" />
+          <div>
+            <h6 className="font-medium text-red-800 mb-2">Backtest: {backtest.name}</h6>
+            <p className="text-red-700 text-sm">
+              This backtest failed because no market data was available for the selected date ({new Date(backtest.backtest_date).toLocaleDateString('en-IN')}).
+            </p>
+            <p className="text-red-600 text-xs mt-2">
+              <strong>Common reasons:</strong> Weekend, holiday, or data not collected for that date.
+            </p>
+          </div>
+        </div>
+      </div>
+      
+      {/* Leg Details Section */}
+      {backtest.legs && backtest.legs.length > 0 && (
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <h6 className="font-medium text-blue-800 mb-3 flex items-center">
+            <BarChart3 className="mr-2 h-4 w-4" />
+            Option Legs That Were Attempted
+          </h6>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {backtest.legs.map((leg, index) => (
+              <div key={index} className="bg-white p-3 rounded border border-blue-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    leg.action === 'Buy' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}>
+                    {leg.action}
+                  </span>
+                  <span className={`px-2 py-1 rounded text-xs font-medium ${
+                    leg.option_type === 'CE' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'
+                  }`}>
+                    {leg.option_type}
+                  </span>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Index:</span>
+                    <span className={`font-medium px-2 py-1 rounded text-xs ${
+                      leg.index_name === 'NIFTY' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                    }`}>
+                      {leg.index_name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Strike:</span>
+                    <span className="font-medium">₹{leg.strike}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Expiry:</span>
+                    <span className="font-medium">{new Date(leg.expiry).toLocaleDateString('en-IN')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Lots:</span>
+                    <span className="font-medium">{leg.lots}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      <div className="text-center">
+        <p className="text-sm text-gray-600 mb-4">
+          Try selecting a different date that has market data available.
+        </p>
       </div>
     </div>
   );

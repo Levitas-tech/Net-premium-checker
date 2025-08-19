@@ -307,14 +307,16 @@ class HistoricalBacktestService:
                     # Find data point for this timestamp
                     leg_data = next((p for p in leg_data_map[leg.id] if p.datetime == timestamp), None)
                     if leg_data:
-                        # Calculate leg value
+                        # Calculate leg value with proper lot size
                         premium = leg_data.close
-                        multiplier = leg.lots
+                        lots = leg.lots
+                        # Get lot size based on index
+                        lot_size = 75 if leg.index_name == 'NIFTY' else 20  # NIFTY: 75, SENSEX: 20
                         
                         if leg.action == "Buy":
-                            leg_value = -premium * multiplier  # Negative for buy
+                            leg_value = -premium * lots * lot_size  # Negative for buy
                         else:  # Sell
-                            leg_value = premium * multiplier  # Positive for sell
+                            leg_value = premium * lots * lot_size   # Positive for sell
                         
                         net_premium += leg_value
                         leg_values[str(leg.id)] = leg_value

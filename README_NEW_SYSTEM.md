@@ -66,11 +66,11 @@ notepad .env
 DATABASE_URL=postgresql://username:password@localhost:5432/net_premium_checker
 
 # Historical Data Service Configuration
-HISTORICAL_MYSQL_HOST=marketdatacollection.cngo8aiaa5xp.ap-south-1.rds.amazonaws.com
+HISTORICAL_MYSQL_HOST=
 HISTORICAL_MYSQL_PORT=3306
 HISTORICAL_MYSQL_USER=admin
-HISTORICAL_MYSQL_PASSWORD=140722!Levitas
-HISTORICAL_MYSQL_DATABASE=SpotData
+HISTORICAL_MYSQL_PASSWORD=
+HISTORICAL_MYSQL_DATABASE=
 
 # JWT Secret
 SECRET_KEY=your_secret_key_here
@@ -120,11 +120,11 @@ PGUSER=your_username
 PGPASSWORD=your_password
 
 # Historical Data Service Configuration
-HISTORICAL_MYSQL_HOST=marketdatacollection.cngo8aiaa5xp.ap-south-1.rds.amazonaws.com
+HISTORICAL_MYSQL_HOST=
 HISTORICAL_MYSQL_PORT=3306
 HISTORICAL_MYSQL_USER=admin
-HISTORICAL_MYSQL_PASSWORD=140722!Levitas
-HISTORICAL_MYSQL_DATABASE=SpotData
+HISTORICAL_MYSQL_PASSWORD=
+HISTORICAL_MYSQL_DATABASE=
 
 # JWT Secret
 SECRET_KEY=your-secret-key-here-change-in-production
