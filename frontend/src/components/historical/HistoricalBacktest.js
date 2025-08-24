@@ -1015,6 +1015,7 @@ const BacktestSummary = ({ backtest, onClose }) => {
 // Backtest Results Component
 const BacktestResults = ({ backtest, onClose }) => {
   const [showAllResults, setShowAllResults] = useState(false);
+  const [timeInterval, setTimeInterval] = useState(1); // Default to 1 minute
   const { data: backtestResults, isLoading: loadingResults } = useQuery(
     ['backtest-results', backtest.id],
     () => axios.get(`/historical/backtest/${backtest.id}/results`),
@@ -1026,27 +1027,98 @@ const BacktestResults = ({ backtest, onClose }) => {
     }
   );
 
+  // Filter and aggregate results based on time interval
+  const aggregatedResults = useMemo(() => {
+    if (!backtestResults?.data?.results || timeInterval === 1) {
+      return backtestResults?.data?.results || [];
+    }
+
+    const results = backtestResults.data.results;
+    if (results.length === 0) return [];
+    
+    // Find the start time (first data point)
+    const startTime = new Date(results[0].datetime);
+    const endTime = new Date(results[results.length - 1].datetime);
+    
+    // Round start time to the nearest interval boundary
+    const startMinutes = startTime.getMinutes();
+    const roundedStartMinutes = Math.floor(startMinutes / timeInterval) * timeInterval;
+    const roundedStartTime = new Date(startTime);
+    roundedStartTime.setMinutes(roundedStartMinutes, 0, 0);
+    
+    const aggregated = [];
+    let currentTime = new Date(roundedStartTime);
+    
+    while (currentTime <= endTime) {
+      // Find the closest data point to this interval time
+      let closestResult = null;
+      let minTimeDiff = Infinity;
+      
+      results.forEach(result => {
+        const resultTime = new Date(result.datetime);
+        const timeDiff = Math.abs(resultTime.getTime() - currentTime.getTime());
+        
+        if (timeDiff < minTimeDiff) {
+          minTimeDiff = timeDiff;
+          closestResult = result;
+        }
+      });
+      
+      if (closestResult) {
+        // Create a copy of the closest result
+        const sampledResult = { ...closestResult };
+        
+        // Update the timestamp to show the interval time
+        sampledResult.datetime = currentTime.toISOString();
+        sampledResult.time_display = currentTime.toLocaleTimeString('en-IN', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        });
+        
+        aggregated.push(sampledResult);
+      }
+      
+      // Move to next interval
+      currentTime.setMinutes(currentTime.getMinutes() + timeInterval);
+    }
+    
+    return aggregated;
+  }, [backtestResults?.data?.results, timeInterval]);
+
   // Download results as Excel
   const downloadExcel = () => {
-    if (!backtestResults?.data?.results) return;
+    if (!aggregatedResults || aggregatedResults.length === 0) return;
     
+    // Create headers including leg LTPs
     const headers = ['DateTime', 'Net Premium'];
-    const worksheetData = backtestResults.data.results.map((result) => {
+    if (backtest.legs) {
+      backtest.legs.forEach((leg, index) => {
+        headers.push(`${leg.index_name} ${leg.strike} ${leg.option_type} LTP`);
+      });
+    }
+    
+    const worksheetData = aggregatedResults.map((result) => {
       let dateTime = 'N/A';
       if (result.datetime) {
         try {
           const dt = new Date(result.datetime);
           if (!isNaN(dt.getTime())) {
-            const day = dt.getDate().toString().padStart(2, '0');
-            const month = (dt.getMonth() + 1).toString().padStart(2, '0');
-            const year = dt.getFullYear();
-            const hours = dt.getHours();
-            const minutes = dt.getMinutes().toString().padStart(2, '0');
-            const seconds = dt.getSeconds().toString().padStart(2, '0');
-            const ampm = hours >= 12 ? 'pm' : 'am';
-            const displayHours = (hours % 12 || 12).toString().padStart(2, '0');
-            
-            dateTime = `${day}-${month}-${year}, ${displayHours}:${minutes}:${seconds} ${ampm}`;
+            if (timeInterval === 1) {
+              // Single timestamp for 1-minute data
+              const day = dt.getDate().toString().padStart(2, '0');
+              const month = (dt.getMonth() + 1).toString().padStart(2, '0');
+              const year = dt.getFullYear();
+              const hours = dt.getHours();
+              const minutes = dt.getMinutes().toString().padStart(2, '0');
+              const seconds = dt.getSeconds().toString().padStart(2, '0');
+              const ampm = hours >= 12 ? 'pm' : 'am';
+              const displayHours = (hours % 12 || 12).toString().padStart(2, '0');
+              
+              dateTime = `${day}-${month}-${year}, ${displayHours}:${minutes}:${seconds} ${ampm}`;
+            } else {
+              // Time range for aggregated data
+              dateTime = result.time_display || dt.toLocaleString('en-IN');
+            }
           } else {
             dateTime = result.datetime;
           }
@@ -1060,7 +1132,33 @@ const BacktestResults = ({ backtest, onClose }) => {
         netPremium = result.net_premium.toFixed(2);
       }
       
-      return [dateTime, netPremium];
+      // Create row data with net premium and leg LTPs
+      const rowData = [dateTime, netPremium];
+      
+      // Add LTPs for each leg if available
+      if (backtest.legs && result.leg_values) {
+        console.log('Excel Export - Backtest legs:', backtest.legs);
+        console.log('Excel Export - Result leg_values:', result.leg_values);
+        
+        backtest.legs.forEach((leg, index) => {
+          const legId = leg.id || index;
+          const legValue = result.leg_values[legId];
+          let ltp = 'N/A';
+          
+          console.log('Excel Export - Processing leg:', leg, 'LegId:', legId, 'LegValue:', legValue);
+          
+          if (legValue !== undefined && legValue !== null) {
+            // Calculate LTP from leg_value: leg_value = action_sign * ltp * lots * lot_size
+            const lotSize = leg.index_name === 'NIFTY' ? 75 : 20;
+            const actionSign = leg.action === 'Buy' ? -1 : 1;
+            ltp = (legValue / (actionSign * leg.lots * lotSize)).toFixed(2);
+          }
+          
+          rowData.push(ltp);
+        });
+      }
+      
+      return rowData;
     });
     
     const allData = [headers, ...worksheetData];
@@ -1068,7 +1166,7 @@ const BacktestResults = ({ backtest, onClose }) => {
     try {
       const worksheet = XLSX.utils.aoa_to_sheet(allData);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Backtest Results');
+      XLSX.utils.book_append_sheet(workbook, worksheet, `Backtest Results (${timeInterval}min)`);
       
       const xlsxBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
       
@@ -1076,7 +1174,7 @@ const BacktestResults = ({ backtest, onClose }) => {
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', `backtest_${backtest.id}_results.xlsx`);
+      link.setAttribute('download', `backtest_${backtest.id}_results_${timeInterval}min.xlsx`);
       link.style.visibility = 'hidden';
       document.body.appendChild(link);
       link.click();
@@ -1094,7 +1192,7 @@ const BacktestResults = ({ backtest, onClose }) => {
           <button
             onClick={downloadExcel}
             className="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700"
-            title="Download all results as Excel file"
+            title={`Download all results as Excel file with ${timeInterval}-minute intervals`}
           >
             <Download className="mr-1 h-4 w-4" /> Download Excel
           </button>
@@ -1107,12 +1205,39 @@ const BacktestResults = ({ backtest, onClose }) => {
         </div>
       </div>
       
+      {/* Time Interval Filter */}
+      <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+        <div className="flex items-center justify-between">
+          <div>
+            <h6 className="font-medium text-gray-700 mb-2">Time Interval</h6>
+            <p className="text-sm text-gray-600">
+              Choose how frequently to display data points. 
+              {timeInterval > 1 && ` Currently showing ${timeInterval}-minute aggregated data.`}
+            </p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <label className="text-sm font-medium text-gray-700">Interval:</label>
+            <select
+              value={timeInterval}
+              onChange={(e) => setTimeInterval(parseInt(e.target.value))}
+              className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+            >
+              <option value={1}>1 minute</option>
+              <option value={5}>5 minutes</option>
+              <option value={15}>15 minutes</option>
+              <option value={30}>30 minutes</option>
+              <option value={60}>1 hour</option>
+            </select>
+          </div>
+        </div>
+      </div>
+      
       {loadingResults ? (
         <div className="text-center py-4">
           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
           <p className="text-sm text-gray-600 mt-2">Loading results...</p>
         </div>
-      ) : backtestResults?.data?.results ? (
+      ) : aggregatedResults && aggregatedResults.length > 0 ? (
         <>
           {/* Leg Details Section */}
           {backtest.legs && backtest.legs.length > 0 && (
@@ -1167,11 +1292,11 @@ const BacktestResults = ({ backtest, onClose }) => {
           <div className="mb-4 flex justify-between items-center">
             <div className="text-sm text-gray-600">
               {showAllResults 
-                ? `Showing all ${backtestResults.data.results.length} results`
-                : `Showing first 20 results of ${backtestResults.data.results.length} total`
+                ? `Showing all ${aggregatedResults.length} results (${timeInterval}-minute intervals)`
+                : `Showing first 20 results of ${aggregatedResults.length} total (${timeInterval}-minute intervals)`
               }
             </div>
-            {!showAllResults && backtestResults.data.results.length > 20 && (
+            {!showAllResults && aggregatedResults.length > 20 && (
               <button
                 onClick={() => setShowAllResults(true)}
                 className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
@@ -1193,16 +1318,27 @@ const BacktestResults = ({ backtest, onClose }) => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    {timeInterval === 1 ? 'Time' : 'Time Range'}
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Net Premium</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Volume</th>
+                  {/* Dynamic LTP columns for each leg */}
+                  {backtest.legs && backtest.legs.map((leg, index) => (
+                    <th key={index} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      {leg.index_name} {leg.strike} {leg.option_type} LTP
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {(showAllResults ? backtestResults.data.results : backtestResults.data.results.slice(0, 20)).map((result, index) => (
+                {(showAllResults ? aggregatedResults : aggregatedResults.slice(0, 20)).map((result, index) => (
                   <tr key={index} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(result.datetime).toLocaleString('en-IN')}
+                      {timeInterval === 1 
+                        ? new Date(result.datetime).toLocaleString('en-IN')
+                        : result.time_display || new Date(result.datetime).toLocaleString('en-IN')
+                      }
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       ₹{result.net_premium?.toFixed(2) || 'N/A'}
@@ -1210,6 +1346,66 @@ const BacktestResults = ({ backtest, onClose }) => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {result.volume || 'N/A'}
                     </td>
+                    {/* LTP values for each leg */}
+                    {backtest.legs && backtest.legs.map((leg, legIndex) => {
+                      // Try multiple ways to find the leg value
+                      let legValue = null;
+                      let legId = null;
+                      
+                      // Method 1: Try using leg.id
+                      if (leg.id && result.leg_values && result.leg_values[leg.id] !== undefined) {
+                        legValue = result.leg_values[leg.id];
+                        legId = leg.id;
+                      }
+                      // Method 2: Try using legIndex as string
+                      else if (result.leg_values && result.leg_values[legIndex.toString()] !== undefined) {
+                        legValue = result.leg_values[legIndex.toString()];
+                        legId = legIndex.toString();
+                      }
+                      // Method 3: Try using legIndex as number
+                      else if (result.leg_values && result.leg_values[legIndex] !== undefined) {
+                        legValue = result.leg_values[legIndex];
+                        legId = legIndex;
+                      }
+                      // Method 4: Try to find by matching leg properties
+                      else if (result.leg_values && typeof result.leg_values === 'object') {
+                        // Look for any key that might contain this leg's data
+                        const legKeys = Object.keys(result.leg_values);
+                        for (const key of legKeys) {
+                          // This is a fallback - we'll use the first available leg value
+                          // In a real scenario, the backend should provide proper mapping
+                          legValue = result.leg_values[key];
+                          legId = key;
+                          break;
+                        }
+                      }
+                      
+                      let ltp = 'N/A';
+                      let ltpClass = 'text-gray-500';
+                      
+                      // Debug logging to understand data structure
+                      console.log('Leg:', leg, 'LegIndex:', legIndex, 'LegId found:', legId, 'LegValues:', result.leg_values, 'LegValue:', legValue);
+                      
+                      if (legValue !== undefined && legValue !== null && legValue !== 0) {
+                        try {
+                          // Calculate LTP from leg_value: leg_value = action_sign * ltp * lots * lot_size
+                          const lotSize = leg.index_name === 'NIFTY' ? 75 : 20;
+                          const actionSign = leg.action === 'Buy' ? -1 : 1;
+                          ltp = (legValue / (actionSign * leg.lots * lotSize)).toFixed(2);
+                          ltpClass = 'text-gray-900 font-medium';
+                        } catch (error) {
+                          console.error('Error calculating LTP:', error, 'for leg:', leg, 'legValue:', legValue);
+                          ltp = 'Error';
+                          ltpClass = 'text-red-500';
+                        }
+                      }
+                      
+                      return (
+                        <td key={legIndex} className="px-4 py-4 whitespace-nowrap text-sm">
+                          <span className={ltpClass}>₹{ltp}</span>
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>
