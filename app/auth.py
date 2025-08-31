@@ -77,7 +77,7 @@ def authenticate_user(db: Session, username: str, password: str) -> Optional[Use
         return None
     return user
 
-def create_user(db: Session, username: str, email: str, password: str) -> User:
+def create_user(db: Session, username: str, email: str, password: str, is_admin: bool = False) -> User:
     """Create a new user"""
     # Check if user already exists
     existing_user = db.query(User).filter(
@@ -91,8 +91,23 @@ def create_user(db: Session, username: str, email: str, password: str) -> User:
         )
     
     hashed_password = get_password_hash(password)
-    user = User(username=username, email=email, hashed_password=hashed_password)
+    user = User(username=username, email=email, hashed_password=hashed_password, is_admin=is_admin)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return user 
+    return user
+
+def is_admin_user(user: User) -> bool:
+    """Check if user has admin privileges"""
+    return user.is_admin
+
+async def get_current_admin_user(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """Get current authenticated user and verify admin privileges"""
+    if not is_admin_user(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin privileges required"
+        )
+    return current_user 

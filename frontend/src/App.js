@@ -8,6 +8,7 @@ import HistoricalBacktest from './components/historical/HistoricalBacktest';
 // Removed signup route per request
 import Dashboard from './components/Dashboard';
 import Layout from './components/Layout';
+import AdminPanel from './components/AdminPanel';
 import './index.css';
 
 // Create a client
@@ -70,6 +71,17 @@ function App() {
                   <ProtectedRoute>
                     <Layout>
                       <HistoricalBacktest />
+                    </Layout>
+                  </ProtectedRoute>
+                } 
+              />
+              
+              <Route 
+                path="/admin" 
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <AdminPanel />
                     </Layout>
                   </ProtectedRoute>
                 } 

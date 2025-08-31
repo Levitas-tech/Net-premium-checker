@@ -8,14 +8,14 @@ from datetime import datetime
 from app.database import get_db, User, OptionLeg, HistoricalBacktest, HistoricalBacktestLeg, HistoricalBacktestResult
 from app.auth import (
     create_user, authenticate_user, create_access_token, 
-    get_current_user, get_password_hash
+    get_current_user, get_password_hash, get_current_admin_user
 )
 from app.models import (
     UserCreate, UserLogin, Token, UserResponse, OptionLegCreate, 
     OptionLegResponse, StrategyCreate, StrategyResponse, 
     LivePriceResponse, PriceUpdateResponse, PortfolioCreate, PortfolioResponse, PortfolioUpdate, OptionLegUpdate, OptionLegBasicResponse,
     HistoricalBacktestCreate, HistoricalBacktestResponse, HistoricalExpiryResponse,
-    HistoricalBacktestSummary, HistoricalLegCreate
+    HistoricalBacktestSummary, HistoricalLegCreate, AdminUserCreate, AdminUserResponse
 )
 from app.services import option_leg_service, portfolio_service
 from app.audit import log_change, get_stats, fetch_recent
@@ -86,6 +86,124 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
 def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Get current user information"""
     return current_user
+
+# Admin endpoints
+@app.post("/admin/users", response_model=AdminUserResponse)
+def create_user_admin(
+    user_data: AdminUserCreate,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new user (Admin only)"""
+    try:
+        user = create_user(
+            db=db,
+            username=user_data.username,
+            email=user_data.email,
+            password=user_data.password,
+            is_admin=user_data.is_admin
+        )
+        return user
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"User creation failed: {str(e)}"
+        )
+
+@app.get("/admin/users", response_model=List[AdminUserResponse])
+def list_users(
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """List all users (Admin only)"""
+    users = db.query(User).all()
+    return users
+
+@app.get("/admin/users/{user_id}", response_model=AdminUserResponse)
+def get_user_admin(
+    user_id: int,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Get user details by ID (Admin only)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    return user
+
+@app.put("/admin/users/{user_id}", response_model=AdminUserResponse)
+def update_user_admin(
+    user_id: int,
+    user_data: AdminUserCreate,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Update user details (Admin only)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Check if username or email already exists (excluding current user)
+    existing_user = db.query(User).filter(
+        (User.username == user_data.username) | (User.email == user_data.email)
+    ).filter(User.id != user_id).first()
+    
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Username or email already registered"
+        )
+    
+    # Update user fields
+    user.username = user_data.username
+    user.email = user_data.email
+    user.is_admin = user_data.is_admin
+    
+    # Update password if provided
+    if user_data.password:
+        user.hashed_password = get_password_hash(user_data.password)
+    
+    db.commit()
+    db.refresh(user)
+    return user
+
+@app.delete("/admin/users/{user_id}")
+def delete_user_admin(
+    user_id: int,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Delete user (Admin only)"""
+    # Prevent admin from deleting themselves
+    if user_id == current_admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own account"
+        )
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    db.delete(user)
+    db.commit()
+    return {"message": "User deleted successfully"}
+
+@app.get("/admin/check")
+def check_admin_status(current_user: User = Depends(get_current_user)):
+    """Check if current user has admin privileges"""
+    return {"is_admin": current_user.is_admin}
 
 # Portfolio endpoints
 @app.post("/portfolios", response_model=PortfolioResponse)
