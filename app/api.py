@@ -15,7 +15,7 @@ from app.models import (
     OptionLegResponse, StrategyCreate, StrategyResponse, 
     LivePriceResponse, PriceUpdateResponse, PortfolioCreate, PortfolioResponse, PortfolioUpdate, OptionLegUpdate, OptionLegBasicResponse,
     HistoricalBacktestCreate, HistoricalBacktestResponse, HistoricalExpiryResponse,
-    HistoricalBacktestSummary, HistoricalLegCreate, AdminUserCreate, AdminUserResponse
+    HistoricalBacktestSummary, HistoricalLegCreate, AdminUserCreate, AdminUserResponse, AdminBacktestResponse
 )
 from app.services import option_leg_service, portfolio_service
 from app.audit import log_change, get_stats, fetch_recent
@@ -200,10 +200,164 @@ def delete_user_admin(
     db.commit()
     return {"message": "User deleted successfully"}
 
+@app.get("/admin/backtests", response_model=List[AdminBacktestResponse])
+def get_all_backtests_admin(
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Get all historical backtests from all users (Admin only)"""
+    try:
+        # Get all backtests from all users
+        all_backtests = db.query(HistoricalBacktest).order_by(HistoricalBacktest.created_at.desc()).all()
+        
+        # Convert to response models
+        response_backtests = []
+        for backtest in all_backtests:
+            # Get user info for this backtest
+            user = db.query(User).filter(User.id == backtest.user_id).first()
+            
+            # Get legs for this backtest
+            legs = db.query(HistoricalBacktestLeg).filter(
+                HistoricalBacktestLeg.backtest_id == backtest.id
+            ).all()
+            
+            response_legs = []
+            for leg in legs:
+                response_leg = HistoricalLegCreate(
+                    index_name=leg.index_name,
+                    strike=leg.strike,
+                    option_type=leg.option_type,
+                    expiry=leg.expiry.date(),
+                    action=leg.action,
+                    lots=leg.lots
+                )
+                response_legs.append(response_leg)
+            
+            response_backtest = AdminBacktestResponse(
+                id=backtest.id,
+                user_id=backtest.user_id,
+                username=user.username if user else "Unknown",
+                email=user.email if user else "Unknown",
+                name=backtest.name,
+                description=backtest.description,
+                backtest_date=backtest.backtest_date,
+                legs=response_legs,
+                created_at=backtest.created_at,
+                status=backtest.status,
+                total_legs=len(response_legs),
+                net_premium_start=backtest.net_premium_start,
+                net_premium_end=backtest.net_premium_end
+            )
+            response_backtests.append(response_backtest)
+        
+        return response_backtests
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get all backtests: {str(e)}"
+        )
+
+@app.get("/admin/backtests/{backtest_id}", response_model=AdminBacktestResponse)
+def get_backtest_admin(
+    backtest_id: int,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Get specific backtest details (Admin only)"""
+    try:
+        backtest = db.query(HistoricalBacktest).filter(HistoricalBacktest.id == backtest_id).first()
+        
+        if not backtest:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Backtest not found"
+            )
+        
+        # Get user info for this backtest
+        user = db.query(User).filter(User.id == backtest.user_id).first()
+        
+        # Get legs for this backtest
+        legs = db.query(HistoricalBacktestLeg).filter(
+            HistoricalBacktestLeg.backtest_id == backtest.id
+        ).all()
+        
+        response_legs = []
+        for leg in legs:
+            response_leg = HistoricalLegCreate(
+                index_name=leg.index_name,
+                strike=leg.strike,
+                option_type=leg.option_type,
+                expiry=leg.expiry.date(),
+                action=leg.action,
+                lots=leg.lots
+            )
+            response_legs.append(response_leg)
+        
+        response_backtest = AdminBacktestResponse(
+            id=backtest.id,
+            user_id=backtest.user_id,
+            username=user.username if user else "Unknown",
+            email=user.email if user else "Unknown",
+            name=backtest.name,
+            description=backtest.description,
+            backtest_date=backtest.backtest_date,
+            legs=response_legs,
+            created_at=backtest.created_at,
+            status=backtest.status,
+            total_legs=len(response_legs),
+            net_premium_start=backtest.net_premium_start,
+            net_premium_end=backtest.net_premium_end
+        )
+        
+        return response_backtest
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get backtest: {str(e)}"
+        )
+
+@app.get("/admin/backtests/{backtest_id}/results")
+def get_backtest_results_admin(
+    backtest_id: int,
+    current_admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Get minute-wise results for a specific backtest (Admin only)"""
+    try:
+        # Verify backtest exists
+        backtest = db.query(HistoricalBacktest).filter(HistoricalBacktest.id == backtest_id).first()
+        
+        if not backtest:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Backtest not found"
+            )
+        
+        if backtest.status != "completed":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Backtest is not completed yet"
+            )
+        
+        results = historical_backtest_service.get_backtest_results(db, backtest_id)
+        return {"results": results}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get backtest results: {str(e)}"
+        )
+
 @app.get("/admin/check")
-def check_admin_status(current_user: User = Depends(get_current_user)):
+def check_admin_status(current_admin: User = Depends(get_current_admin_user)):
     """Check if current user has admin privileges"""
-    return {"is_admin": current_user.is_admin}
+    return {"is_admin": True, "user_id": current_admin.id, "username": current_admin.username}
 
 # Portfolio endpoints
 @app.post("/portfolios", response_model=PortfolioResponse)

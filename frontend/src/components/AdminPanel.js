@@ -12,7 +12,8 @@ import {
   Check, 
   AlertCircle,
   Eye,
-  EyeOff
+  EyeOff,
+  BarChart3
 } from 'lucide-react';
 
 const AdminPanel = () => {
@@ -52,6 +53,20 @@ const AdminPanel = () => {
       onError: (error) => {
         if (error.response?.status === 403) {
           setErrorMessage('Access denied. Admin privileges required.');
+        }
+      }
+    }
+  );
+
+  // Get all backtests
+  const { data: backtests, isLoading: loadingBacktests, error: backtestsError } = useQuery(
+    'admin-backtests',
+    () => axios.get('/admin/backtests'),
+    {
+      enabled: adminStatus?.data?.is_admin === true,
+      onError: (error) => {
+        if (error.response?.status === 403) {
+          setErrorMessage('Access denied. Admin privileges required to view backtests.');
         }
       }
     }
@@ -112,6 +127,27 @@ const AdminPanel = () => {
     }
   );
 
+  const [selectedUserId, setSelectedUserId] = useState('all');
+
+  const handleDelete = (userId, username) => {
+    if (window.confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+      deleteUserMutation.mutate(userId);
+    }
+  };
+
+  // Filter backtests by selected user
+  const filteredBacktests = React.useMemo(() => {
+    if (!backtests?.data || selectedUserId === 'all') {
+      return backtests?.data || [];
+    }
+    return backtests.data.filter(backtest => backtest.user_id === parseInt(selectedUserId));
+  }, [backtests?.data, selectedUserId]);
+
+  const cancelEdit = () => {
+    setEditingUser(null);
+    resetForm();
+  };
+
   const resetForm = () => {
     setFormData({
       username: '',
@@ -119,35 +155,13 @@ const AdminPanel = () => {
       password: '',
       is_admin: false
     });
-    setShowPassword(false);
-  };
-
-  const handleInputChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    
-    if (!formData.username || !formData.email || (!editingUser && !formData.password)) {
-      setErrorMessage('Please fill in all required fields');
-      setTimeout(() => setErrorMessage(''), 5000);
-      return;
-    }
-
     if (editingUser) {
-      // Update existing user
-      const updateData = { ...formData };
-      if (!formData.password) {
-        delete updateData.password; // Don't update password if empty
-      }
-      updateUserMutation.mutate({ userId: editingUser.id, userData: updateData });
+      updateUserMutation.mutate({ userId: editingUser.id, userData: formData });
     } else {
-      // Create new user
       createUserMutation.mutate(formData);
     }
   };
@@ -157,180 +171,169 @@ const AdminPanel = () => {
     setFormData({
       username: user.username,
       email: user.email,
-      password: '', // Don't pre-fill password
+      password: '',
       is_admin: user.is_admin
     });
     setShowCreateForm(true);
   };
 
-  const handleDelete = (userId, username) => {
-    if (window.confirm(`Are you sure you want to delete user "${username}"?`)) {
-      deleteUserMutation.mutate(userId);
-    }
-  };
-
-  const cancelEdit = () => {
-    setEditingUser(null);
-    setShowCreateForm(false);
-    resetForm();
-  };
-
-  // If not admin, show access denied
-  if (adminStatus?.data?.is_admin === false) {
+  if (loadingAdminStatus) {
     return (
-      <div className="max-w-6xl mx-auto p-6">
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          <div className="text-center py-12">
-            <Shield className="mx-auto h-16 w-16 text-red-500 mb-4" />
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h2>
-            <p className="text-gray-600">You don't have permission to access the admin panel.</p>
-          </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!adminStatus?.data?.is_admin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Shield className="mx-auto h-12 w-12 text-red-500 mb-4" />
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Access Denied</h2>
+          <p className="text-gray-600">You need admin privileges to access this page.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="bg-white rounded-lg shadow-lg p-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
+        <p className="text-gray-600 mt-2">Manage users and monitor system activity</p>
+      </div>
+
+      {/* Success/Error Messages */}
+      {successMessage && (
+        <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-md flex items-center">
+          <Check className="h-5 w-5 mr-2" />
+          {successMessage}
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md flex items-center">
+          <AlertCircle className="h-5 w-5 mr-2" />
+          {errorMessage}
+        </div>
+      )}
+
+      {/* User Management Section */}
+      <div className="bg-white shadow rounded-lg p-6 mb-6">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center">
-            <Shield className="mr-2 text-blue-600" />
-            Admin Panel
-          </h2>
+          <div className="flex items-center">
+            <Users className="h-6 w-6 text-blue-600 mr-3" />
+            <h2 className="text-xl font-semibold text-gray-900">User Management</h2>
+          </div>
           <button
             onClick={() => setShowCreateForm(true)}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center"
+            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
-            <UserPlus className="mr-2 h-4 w-4" />
-            Create User
+            <UserPlus className="h-4 w-4 mr-2" />
+            Add User
           </button>
         </div>
 
-        {/* Error and Success Messages */}
-        {errorMessage && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <div className="flex items-center">
-              <AlertCircle className="h-5 w-5 text-red-600 mr-3" />
-              <span className="text-red-800">{errorMessage}</span>
-            </div>
-          </div>
-        )}
-        
-        {successMessage && (
-          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-            <div className="flex items-center">
-              <Check className="h-5 w-5 text-green-600 mr-3" />
-              <span className="text-green-800">{successMessage}</span>
-            </div>
-          </div>
-        )}
-
         {/* Create/Edit User Form */}
         {showCreateForm && (
-          <div className="mb-8 p-6 bg-gray-50 border border-gray-200 rounded-lg">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                {editingUser ? 'Edit User' : 'Create New User'}
-              </h3>
-              <button
-                onClick={cancelEdit}
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            
+          <div className="mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              {editingUser ? 'Edit User' : 'Create New User'}
+            </h3>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Username *
+                  <label htmlFor="username" className="block text-sm font-medium text-gray-700">
+                    Username
                   </label>
                   <input
                     type="text"
-                    name="username"
+                    id="username"
                     value={formData.username}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     required
                   />
                 </div>
-                
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Email *
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                    Email
                   </label>
                   <input
                     type="email"
-                    name="email"
+                    id="email"
                     value={formData.email}
-                    onChange={handleInputChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     required
                   />
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Password {editingUser ? '(leave blank to keep current)' : '*'}
-                  </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      name="password"
-                      value={formData.password}
-                      onChange={handleInputChange}
-                      className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required={!editingUser}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute inset-y-0 right-0 pr-3 flex items-center"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4 text-gray-400" />
-                      ) : (
-                        <Eye className="h-4 w-4 text-gray-400" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="flex items-center">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      name="is_admin"
-                      checked={formData.is_admin}
-                      onChange={handleInputChange}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">Admin privileges</span>
-                  </label>
+              <div className="relative">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  Password {editingUser && <span className="text-gray-500">(leave blank to keep current)</span>}
+                </label>
+                <div className="mt-1 relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    id="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="block w-full px-3 py-2 pr-10 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    required={!editingUser}
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                    onClick={() => setShowPassword(!showPassword)}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4 text-gray-400" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-gray-400" />
+                    )}
+                  </button>
                 </div>
               </div>
-              
-              <div className="flex justify-end space-x-3 pt-4">
+
+              <div className="flex items-center">
+                <input
+                  id="is_admin"
+                  type="checkbox"
+                  checked={formData.is_admin}
+                  onChange={(e) => setFormData({ ...formData, is_admin: e.target.checked })}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="is_admin" className="ml-2 block text-sm text-gray-900">
+                  Admin privileges
+                </label>
+              </div>
+
+              <div className="flex justify-end space-x-3">
                 <button
                   type="button"
-                  onClick={cancelEdit}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    cancelEdit();
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                 >
+                  <X className="h-4 w-4 mr-2 inline" />
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={createUserMutation.isLoading || updateUserMutation.isLoading}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
                 >
-                  {createUserMutation.isLoading || updateUserMutation.isLoading 
-                    ? 'Saving...' 
-                    : editingUser ? 'Update User' : 'Create User'
-                  }
+                  {createUserMutation.isLoading || updateUserMutation.isLoading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2 inline-block"></div>
+                  ) : (
+                    <Check className="h-4 w-4 mr-2 inline" />
+                  )}
+                  {editingUser ? 'Update User' : 'Create User'}
                 </button>
               </div>
             </form>
@@ -339,11 +342,6 @@ const AdminPanel = () => {
 
         {/* Users List */}
         <div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-            <Users className="mr-2 h-5 w-5" />
-            User Management
-          </h3>
-          
           {loadingUsers ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -436,6 +434,136 @@ const AdminPanel = () => {
             <div className="text-center py-8 text-gray-500">
               <Users className="mx-auto h-12 w-12 text-gray-400 mb-4" />
               <p>No users found.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* All Backtests Section */}
+      <div className="bg-white shadow rounded-lg p-6 mb-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center">
+            <BarChart3 className="h-6 w-6 text-blue-600 mr-3" />
+            <h2 className="text-xl font-semibold text-gray-900">All Backtests</h2>
+          </div>
+          <div className="text-sm text-gray-500">
+            {filteredBacktests ? `${filteredBacktests.length} backtests` : 'Loading...'}
+          </div>
+        </div>
+
+        {/* User Filter Dropdown */}
+        <div className="mb-6">
+          <label htmlFor="user-filter" className="block text-sm font-medium text-gray-700 mb-2">
+            Filter by User
+          </label>
+          <select
+            id="user-filter"
+            value={selectedUserId}
+            onChange={(e) => setSelectedUserId(e.target.value)}
+            className="block w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+          >
+            <option value="all">All Users ({backtests?.data?.length || 0} backtests)</option>
+            {users?.data?.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.username} ({user.email}) - {backtests?.data?.filter(bt => bt.user_id === user.id).length || 0} backtests
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-4">
+          {loadingBacktests ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-600">Loading backtests...</p>
+            </div>
+          ) : backtestsError ? (
+            <div className="text-center py-8 text-red-600">
+              <AlertCircle className="mx-auto h-12 w-8 mb-4" />
+              <p>Error loading backtests. Please try again.</p>
+            </div>
+          ) : filteredBacktests?.length > 0 ? (
+            <div className="space-y-4">
+              {filteredBacktests.map((backtest) => (
+                <div key={backtest.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-3 mb-2">
+                        <h3 className="text-lg font-medium text-gray-900">{backtest.name}</h3>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          backtest.status === 'completed' 
+                            ? 'bg-green-100 text-green-800' 
+                            : backtest.status === 'running'
+                            ? 'bg-yellow-100 text-yellow-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {backtest.status}
+                        </span>
+                      </div>
+                      
+                      {backtest.description && (
+                        <p className="text-gray-600 mb-3">{backtest.description}</p>
+                      )}
+                      
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-500">User:</span>
+                          <div className="font-medium">{backtest.username}</div>
+                          <div className="text-gray-500 text-xs">{backtest.email}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Date:</span>
+                          <div className="font-medium">{new Date(backtest.backtest_date).toLocaleDateString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Legs:</span>
+                          <div className="font-medium">{backtest.total_legs}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-500">Created:</span>
+                          <div className="font-medium">{new Date(backtest.created_at).toLocaleDateString('en-IN')}</div>
+                        </div>
+                      </div>
+                      
+                      {backtest.net_premium_start !== null && backtest.net_premium_end !== null && (
+                        <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+                          <div className="text-sm text-gray-600 mb-2">Net Premium Range:</div>
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <span className="text-gray-500 text-xs">Start:</span>
+                              <div className="font-medium">₹{backtest.net_premium_start?.toFixed(2) || 'N/A'}</div>
+                            </div>
+                            <div>
+                              <span className="text-gray-500 text-xs">End:</span>
+                              <div className="font-medium">₹{backtest.net_premium_end?.toFixed(2) || 'N/A'}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {backtest.legs && backtest.legs.length > 0 && (
+                        <div className="mt-3">
+                          <div className="text-sm text-gray-600 mb-2">Strategy Legs:</div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {backtest.legs.map((leg, index) => (
+                              <div key={index} className="text-xs bg-blue-50 p-2 rounded border">
+                                <div className="font-medium">{leg.index_name} {leg.strike} {leg.option_type}</div>
+                                <div className="text-gray-600">{leg.action} {leg.lots} lots</div>
+                                <div className="text-gray-500">Exp: {new Date(leg.expiry).toLocaleDateString('en-IN')}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <BarChart3 className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+              <p>No backtests found{selectedUserId !== 'all' ? ' for selected user' : ''}.</p>
             </div>
           )}
         </div>

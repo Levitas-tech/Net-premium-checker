@@ -189,6 +189,24 @@ class HistoricalBacktestResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class AdminBacktestResponse(BaseModel):
+    id: int
+    user_id: int
+    username: str  # User's username
+    email: str     # User's email
+    name: str
+    description: Optional[str]
+    backtest_date: date
+    legs: List[HistoricalLegCreate]
+    created_at: datetime
+    status: str  # 'running', 'completed', 'failed'
+    total_legs: int
+    net_premium_start: Optional[float] = None
+    net_premium_end: Optional[float] = None
+
+    class Config:
+        from_attributes = True
+
 class HistoricalBacktestResult(BaseModel):
     backtest_id: int
     datetime: datetime
