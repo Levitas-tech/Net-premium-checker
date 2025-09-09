@@ -189,15 +189,45 @@ class HistoricalBacktestService:
             cursor.execute(query, (start_date, end_date))
             results = cursor.fetchall()
             
+            # Debug logging to see what data we're getting
+            logger.info(f"Fetched {len(results)} data points for {table_name}")
+            if results:
+                sample_result = results[0]
+                logger.info(f"Sample data point: datetime={sample_result['datetime']}, open={sample_result['open']}, high={sample_result['high']}, low={sample_result['low']}, close={sample_result['close']}, volume={sample_result['volume']}")
+                # Log first few results to see the pattern
+                for i, result in enumerate(results[:3]):
+                    logger.info(f"Data point {i+1}: close={result['close']}, volume={result['volume']}")
+            
             # Convert to HistoricalDataPoint objects
             data_points = []
             for result in results:
+                close_price = float(result['close'])
+                open_price = float(result['open'])
+                high_price = float(result['high'])
+                low_price = float(result['low'])
+                
+                # Check for negative prices and log them
+                if close_price < 0:
+                    logger.warning(f"Negative close price detected: {close_price} for {table_name} at {result['datetime']}")
+                    # Skip this data point as it's invalid
+                    continue
+                
+                # Check for other invalid prices
+                if open_price < 0 or high_price < 0 or low_price < 0:
+                    logger.warning(f"Negative price detected: open={open_price}, high={high_price}, low={low_price} for {table_name} at {result['datetime']}")
+                    continue
+                
+                # Check for unrealistic prices (options shouldn't be > 1000 typically)
+                if close_price > 1000 or open_price > 1000 or high_price > 1000 or low_price > 1000:
+                    logger.warning(f"Unrealistically high price detected: close={close_price}, open={open_price}, high={high_price}, low={low_price} for {table_name} at {result['datetime']}")
+                    continue
+                
                 data_point = HistoricalDataPoint(
                     datetime=result['datetime'],
-                    open=float(result['open']),
-                    high=float(result['high']),
-                    low=float(result['low']),
-                    close=float(result['close']),
+                    open=open_price,
+                    high=high_price,
+                    low=low_price,
+                    close=close_price,
                     volume=int(result['volume'])
                 )
                 data_points.append(data_point)
@@ -313,11 +343,15 @@ class HistoricalBacktestService:
                         # Get lot size based on index
                         lot_size = 75 if leg.index_name == 'NIFTY' else 20  # NIFTY: 75, SENSEX: 20
                         
+                        # Debug logging
+                        logger.info(f"Leg {leg.id} ({leg.index_name} {leg.strike} {leg.option_type}): premium={premium}, lots={lots}, lot_size={lot_size}, action={leg.action}")
+                        
                         if leg.action == "Buy":
                             leg_value = -premium * lots * lot_size  # Negative for buy
                         else:  # Sell
                             leg_value = premium * lots * lot_size   # Positive for sell
                         
+                        logger.info(f"Calculated leg_value: {leg_value}")
                         net_premium += leg_value
                         leg_values[str(leg.id)] = leg_value
                 

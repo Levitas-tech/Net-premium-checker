@@ -167,6 +167,15 @@ class HistoricalLegCreate(BaseModel):
     action: str = Field(..., pattern=r"^(Buy|Sell)$")
     lots: int = Field(..., gt=0)
 
+class HistoricalLegResponse(BaseModel):
+    id: int
+    index_name: str = Field(..., pattern=r"^(NIFTY|SENSEX)$")
+    strike: float = Field(..., gt=0)
+    option_type: str = Field(..., pattern=r"^(CE|PE)$")
+    expiry: date
+    action: str = Field(..., pattern=r"^(Buy|Sell)$")
+    lots: int = Field(..., gt=0)
+
 class HistoricalBacktestCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
@@ -179,7 +188,7 @@ class HistoricalBacktestResponse(BaseModel):
     name: str
     description: Optional[str]
     backtest_date: date
-    legs: List[HistoricalLegCreate]
+    legs: List[HistoricalLegResponse]
     created_at: datetime
     status: str  # 'running', 'completed', 'failed'
     total_legs: int
@@ -197,7 +206,7 @@ class AdminBacktestResponse(BaseModel):
     name: str
     description: Optional[str]
     backtest_date: date
-    legs: List[HistoricalLegCreate]
+    legs: List[HistoricalLegResponse]
     created_at: datetime
     status: str  # 'running', 'completed', 'failed'
     total_legs: int

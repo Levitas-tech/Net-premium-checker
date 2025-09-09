@@ -15,7 +15,7 @@ from app.models import (
     OptionLegResponse, StrategyCreate, StrategyResponse, 
     LivePriceResponse, PriceUpdateResponse, PortfolioCreate, PortfolioResponse, PortfolioUpdate, OptionLegUpdate, OptionLegBasicResponse,
     HistoricalBacktestCreate, HistoricalBacktestResponse, HistoricalExpiryResponse,
-    HistoricalBacktestSummary, HistoricalLegCreate, AdminUserCreate, AdminUserResponse, AdminBacktestResponse
+    HistoricalBacktestSummary, HistoricalLegCreate, HistoricalLegResponse, AdminUserCreate, AdminUserResponse, AdminBacktestResponse
 )
 from app.services import option_leg_service, portfolio_service
 from app.audit import log_change, get_stats, fetch_recent
@@ -223,7 +223,8 @@ def get_all_backtests_admin(
             
             response_legs = []
             for leg in legs:
-                response_leg = HistoricalLegCreate(
+                response_leg = HistoricalLegResponse(
+                    id=leg.id,
                     index_name=leg.index_name,
                     strike=leg.strike,
                     option_type=leg.option_type,
@@ -284,7 +285,8 @@ def get_backtest_admin(
         
         response_legs = []
         for leg in legs:
-            response_leg = HistoricalLegCreate(
+            response_leg = HistoricalLegResponse(
+                id=leg.id,
                 index_name=leg.index_name,
                 strike=leg.strike,
                 option_type=leg.option_type,
@@ -1184,6 +1186,50 @@ def get_historical_service_health():
             "error": str(e)
         }
 
+@app.get("/historical/debug-data/{index_name}")
+def debug_historical_data(
+    index_name: str,
+    strike: float,
+    option_type: str,
+    expiry: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Debug endpoint to inspect raw historical data"""
+    try:
+        from datetime import date
+        expiry_date = date.fromisoformat(expiry)
+        
+        # Get raw data for debugging
+        data = historical_backtest_service.get_historical_data(
+            index_name, strike, option_type, expiry_date, expiry_date, expiry_date
+        )
+        
+        # Return first 10 data points for inspection
+        debug_data = []
+        for i, point in enumerate(data[:10]):
+            debug_data.append({
+                "datetime": point.datetime.isoformat(),
+                "open": point.open,
+                "high": point.high,
+                "low": point.low,
+                "close": point.close,
+                "volume": point.volume
+            })
+        
+        return {
+            "index_name": index_name,
+            "strike": strike,
+            "option_type": option_type,
+            "expiry": expiry,
+            "total_points": len(data),
+            "sample_data": debug_data
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error debugging data: {str(e)}"
+        )
+
 @app.get("/historical/available-expiries/{index_name}")
 def get_available_expiries(
     index_name: str, 
@@ -1251,7 +1297,8 @@ def run_historical_backtest(
         
         response_legs = []
         for leg in legs:
-            response_leg = HistoricalLegCreate(
+            response_leg = HistoricalLegResponse(
+                id=leg.id,
                 index_name=leg.index_name,
                 strike=leg.strike,
                 option_type=leg.option_type,
@@ -1375,7 +1422,8 @@ def get_user_backtests(
             
             response_legs = []
             for leg in legs:
-                response_leg = HistoricalLegCreate(
+                response_leg = HistoricalLegResponse(
+                    id=leg.id,
                     index_name=leg.index_name,
                     strike=leg.strike,
                     option_type=leg.option_type,

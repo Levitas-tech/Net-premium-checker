@@ -191,7 +191,7 @@ const HistoricalBacktest = () => {
     // Load the legs
     if (backtest.legs && backtest.legs.length > 0) {
       setLegs(backtest.legs.map(leg => ({
-        id: Date.now() + Math.random(), // Generate new IDs
+        id: leg.id || Date.now() + Math.random(), // Preserve original ID if available
         index_name: leg.index_name,
         strike: leg.strike,
         option_type: leg.option_type,
@@ -1141,7 +1141,7 @@ const BacktestResults = ({ backtest, onClose }) => {
         console.log('Excel Export - Result leg_values:', result.leg_values);
         
         backtest.legs.forEach((leg, index) => {
-          const legId = leg.id || index;
+          const legId = leg.id || index.toString();
           const legValue = result.leg_values[legId];
           let ltp = 'N/A';
           
@@ -1150,8 +1150,10 @@ const BacktestResults = ({ backtest, onClose }) => {
           if (legValue !== undefined && legValue !== null) {
             // Calculate LTP from leg_value: leg_value = action_sign * ltp * lots * lot_size
             const lotSize = leg.index_name === 'NIFTY' ? 75 : 20;
-            const actionSign = leg.action === 'Buy' ? -1 : 1;
-            ltp = (legValue / (actionSign * leg.lots * lotSize)).toFixed(2);
+            
+            // Ensure we get a positive LTP by taking absolute value of legValue
+            // since legValue is already signed based on action
+            ltp = (Math.abs(legValue) / (leg.lots * lotSize)).toFixed(2);
           }
           
           rowData.push(ltp);
@@ -1391,7 +1393,10 @@ const BacktestResults = ({ backtest, onClose }) => {
                           // Calculate LTP from leg_value: leg_value = action_sign * ltp * lots * lot_size
                           const lotSize = leg.index_name === 'NIFTY' ? 75 : 20;
                           const actionSign = leg.action === 'Buy' ? -1 : 1;
-                          ltp = (legValue / (actionSign * leg.lots * lotSize)).toFixed(2);
+                          
+                          // Ensure we get a positive LTP by taking absolute value of legValue
+                          // since legValue is already signed based on action
+                          ltp = (Math.abs(legValue) / (leg.lots * lotSize)).toFixed(2);
                           ltpClass = 'text-gray-900 font-medium';
                         } catch (error) {
                           console.error('Error calculating LTP:', error, 'for leg:', leg, 'legValue:', legValue);

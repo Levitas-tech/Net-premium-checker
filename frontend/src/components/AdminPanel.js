@@ -13,7 +13,10 @@ import {
   AlertCircle,
   Eye,
   EyeOff,
-  BarChart3
+  BarChart3,
+  Download,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 const AdminPanel = () => {
@@ -22,6 +25,8 @@ const AdminPanel = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [expandedBacktests, setExpandedBacktests] = useState(new Set());
+  const [backtestResults, setBacktestResults] = useState({});
   
   const queryClient = useQueryClient();
 
@@ -155,6 +160,66 @@ const AdminPanel = () => {
       password: '',
       is_admin: false
     });
+  };
+
+  // Toggle backtest results expansion
+  const toggleBacktestResults = async (backtestId) => {
+    const newExpanded = new Set(expandedBacktests);
+    
+    if (newExpanded.has(backtestId)) {
+      newExpanded.delete(backtestId);
+    } else {
+      newExpanded.add(backtestId);
+      
+      // Fetch results if not already loaded
+      if (!backtestResults[backtestId]) {
+        try {
+          const response = await axios.get(`/admin/backtests/${backtestId}/results`);
+          setBacktestResults(prev => ({
+            ...prev,
+            [backtestId]: response.data.results
+          }));
+        } catch (error) {
+          console.error('Error fetching backtest results:', error);
+          setErrorMessage('Failed to load backtest results');
+        }
+      }
+    }
+    
+    setExpandedBacktests(newExpanded);
+  };
+
+  // Check if backtest results are expanded
+  const isBacktestExpanded = (backtestId) => {
+    return expandedBacktests.has(backtestId);
+  };
+
+  // Download backtest results as CSV
+  const downloadBacktestResults = (backtestId, backtestName) => {
+    const results = backtestResults[backtestId];
+    if (!results || results.length === 0) return;
+
+    // Create CSV content
+    const headers = ['Timestamp', 'Net Premium', 'Leg Values'];
+    const csvContent = [
+      headers.join(','),
+      ...results.map(result => [
+        new Date(result.datetime).toLocaleString('en-IN'),
+        result.net_premium?.toFixed(2) || 'N/A',
+        result.leg_values ? Object.values(result.leg_values).map(v => v?.toFixed(2) || 'N/A').join(';') : 'N/A'
+      ].join(','))
+    ].join('\n');
+
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `backtest_${backtestName}_results.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   };
 
   const handleSubmit = (e) => {
@@ -552,6 +617,70 @@ const AdminPanel = () => {
                                 <div className="text-gray-500">Exp: {new Date(leg.expiry).toLocaleDateString('en-IN')}</div>
                               </div>
                             ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* View Results Button */}
+                      {backtest.status === 'completed' && (
+                        <div className="mt-4 flex justify-end">
+                          <button
+                            onClick={() => toggleBacktestResults(backtest.id)}
+                            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                          >
+                            {isBacktestExpanded(backtest.id) ? (
+                              <>
+                                <ChevronUp className="h-4 w-4 mr-2" />
+                                Hide Results
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Results
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Backtest Results Display */}
+                      {isBacktestExpanded(backtest.id) && backtestResults[backtest.id] && (
+                        <div className="mt-4 border-t pt-4">
+                          <div className="flex justify-between items-center mb-3">
+                            <div className="text-sm font-medium text-gray-700">Detailed Results:</div>
+                            <button
+                              onClick={() => downloadBacktestResults(backtest.id, backtest.name)}
+                              className="inline-flex items-center px-2 py-1 border border-gray-300 shadow-sm text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                            >
+                              <Download className="h-3 w-3 mr-1" />
+                              Download CSV
+                            </button>
+                          </div>
+                          <div className="bg-gray-50 rounded-lg p-4 max-h-[600px] overflow-y-auto">
+                            <div className="text-xs text-gray-600 mb-2">
+                              Showing {backtestResults[backtest.id].length} data points
+                            </div>
+                            <div className="space-y-1">
+                              {backtestResults[backtest.id].map((result, index) => (
+                                <div key={index} className="flex justify-between items-center text-xs bg-white p-2 rounded border">
+                                  <div className="font-mono">
+                                    {new Date(result.datetime).toLocaleString('en-IN')}
+                                  </div>
+                                  <div className="text-right">
+                                    <div className="font-medium">
+                                      Net Premium: ₹{result.net_premium?.toFixed(2) || 'N/A'}
+                                    </div>
+                                    {result.leg_values && Object.keys(result.leg_values).length > 0 && (
+                                      <div className="text-gray-500 mt-1">
+                                        Leg Values: {Object.entries(result.leg_values).map(([legId, value]) => 
+                                          `₹${value?.toFixed(2) || 'N/A'}`
+                                        ).join(', ')}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       )}
