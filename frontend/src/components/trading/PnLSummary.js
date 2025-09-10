@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 
 const PnLSummary = ({ netPremium, totalPnl, lastUpdated, isTracking }) => {
   const formatCurrency = (amount) => {

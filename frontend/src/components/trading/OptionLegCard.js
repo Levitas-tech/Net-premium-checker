@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, TrendingDown, AlertCircle, Edit, Trash2 } from 'lucide-react';
+import { AlertCircle, Edit, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 
 const OptionLegCard = ({ leg, isTracking, onEdit, onDelete }) => {
@@ -23,19 +23,6 @@ const OptionLegCard = ({ leg, isTracking, onEdit, onDelete }) => {
     return action === 'Buy' ? 'bg-success-100' : 'bg-danger-100';
   };
 
-  const getPnlColor = (pnl) => {
-    if (!pnl) return 'text-gray-500';
-    return pnl > 0 ? 'text-success-600' : pnl < 0 ? 'text-danger-600' : 'text-gray-500';
-  };
-
-  const getPnlIcon = (pnl) => {
-    if (!pnl) return null;
-    return pnl > 0 ? (
-      <TrendingUp className="h-4 w-4 text-success-600" />
-    ) : pnl < 0 ? (
-      <TrendingDown className="h-4 w-4 text-danger-600" />
-    ) : null;
-  };
 
   const getSymbol = () => {
     return `${leg.index_name} ${formatNumber(leg.strike)} ${leg.option_type}`;
