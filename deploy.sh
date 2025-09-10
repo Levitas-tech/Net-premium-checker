@@ -1,51 +1,32 @@
 #!/bin/bash
 
-# Deployment script for Net-premium-checker
-# This script will be called by GitHub Actions
+# Navigate to the actual project directory
+cd /opt/net-premium-checker
 
-set -e  # Exit on any error
+# Pull the latest changes from GitHub
+echo "Pulling latest changes..."
+git pull origin master
 
-echo "🚀 Starting deployment..."
+# Activate virtual environment and install Python dependencies
+echo "Installing Python dependencies..."
+source venv/bin/activate
+pip install -r requirements.txt
+deactivate
 
-# Navigate to project directory
-cd /root/Net-premium-checker
-
-# Pull latest changes
-echo "📥 Pulling latest changes..."
-git pull origin main
-
-# Install/update Python dependencies
-echo "🐍 Installing Python dependencies..."
-pip3 install -r requirements.txt
-
-# Install/update Node.js dependencies and build frontend
-echo "📦 Installing Node.js dependencies..."
+# Build the frontend with increased memory
+echo "Building frontend..."
 cd frontend
 npm install
-npm run build
+# Increase Node.js memory limit for build
+NODE_OPTIONS="--max-old-space-size=4096" npm run build
 cd ..
 
-# Stop existing backend process
-echo "🛑 Stopping existing backend..."
-pkill -f "python main.py" || true
-sleep 2
-
-# Start backend service
-echo "▶️ Starting backend service..."
-nohup python main.py > backend.log 2>&1 &
-sleep 3
-
-# Check if backend is running
-if pgrep -f "python main.py" > /dev/null; then
-    echo "✅ Backend started successfully"
-else
-    echo "❌ Backend failed to start"
-    exit 1
-fi
+# Restart the PM2 process
+echo "Restarting PM2 process..."
+pm2 restart net-premium-checker-backend
 
 # Reload Nginx
-echo "🔄 Reloading Nginx..."
+echo "Reloading Nginx..."
 systemctl reload nginx
 
-echo "🎉 Deployment completed successfully!"
-echo "🌐 Application is available at: https://premiumcalculator.levitascapital.in"
+echo "Deployment completed successfully!"
