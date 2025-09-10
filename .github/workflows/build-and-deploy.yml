@@ -1,0 +1,56 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+        
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+        
+    - name: Build frontend
+      run: |
+        cd frontend
+        npm run build
+        
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.SSH_KEY }}
+        script: |
+          cd /opt/net-premium-checker
+          echo "Pulling latest changes..."
+          git pull origin master
+          
+          echo "Installing Python dependencies..."
+          source venv/bin/activate
+          pip install -r requirements.txt
+          deactivate
+          
+          echo "Skipping frontend build - using pre-built files from GitHub Actions..."
+          
+          echo "Restarting PM2 process..."
+          pm2 restart net-premium-checker-backend
+          
+          echo "Reloading Nginx..."
+          systemctl reload nginx
+          
+          echo "Deployment completed successfully!"
