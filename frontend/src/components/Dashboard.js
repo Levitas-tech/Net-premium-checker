@@ -1,15 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery, useMutation, useQueryClient } from 'react-query';
+import { useQuery } from 'react-query';
 import axios from 'axios';
 
 import { 
-  Plus, 
-  Save, 
-  Play,
-  Pause, 
-  TrendingUp, 
-  TrendingDown,
-  RefreshCw,
   AlertCircle,
   Activity
 } from 'lucide-react';
@@ -21,10 +14,8 @@ const Dashboard = () => {
   const [websocketStatus, setWebsocketStatus] = useState(null);
   const [isWebsocketRunning, setIsWebsocketRunning] = useState(false);
   
-  const queryClient = useQueryClient();
-
   // WebSocket status query
-  const { data: wsStatus, refetch: refetchWsStatus, error: wsError } = useQuery(
+  const { data: wsStatus, error: wsError } = useQuery(
     'websocketStatus',
     async () => {
       const response = await axios.get('/websocket/status/public');

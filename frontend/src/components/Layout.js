@@ -46,9 +46,9 @@ const Layout = ({ children }) => {
             </button>
           </div>
           <nav className="flex-1 space-y-1 px-2 py-4">
-            <a
+            <button
               onClick={() => handleNavigation('/dashboard')}
-              className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer ${
+              className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer w-full text-left ${
                 isActiveRoute('/dashboard') 
                   ? 'text-gray-900 bg-gray-100' 
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
@@ -56,10 +56,10 @@ const Layout = ({ children }) => {
             >
               <BarChart3 className="mr-3 h-5 w-5 text-gray-500" />
               Dashboard
-            </a>
-            <a
+            </button>
+            <button
               onClick={() => handleNavigation('/historical')}
-              className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer ${
+              className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer w-full text-left ${
                 isActiveRoute('/historical') 
                   ? 'text-gray-900 bg-gray-100' 
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
@@ -67,11 +67,11 @@ const Layout = ({ children }) => {
             >
               <History className="mr-3 h-5 w-5 text-gray-500" />
               Historical Backtesting
-            </a>
+            </button>
             {user?.is_admin && (
-              <a
+              <button
                 onClick={() => handleNavigation('/admin')}
-                className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer ${
+                className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer w-full text-left ${
                   isActiveRoute('/admin') 
                     ? 'text-gray-900 bg-gray-100' 
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
@@ -79,7 +79,7 @@ const Layout = ({ children }) => {
               >
                 <Shield className="mr-3 h-5 w-5 text-gray-500" />
                 Admin Panel
-              </a>
+              </button>
             )}
           </nav>
         </div>
@@ -92,9 +92,9 @@ const Layout = ({ children }) => {
             <h1 className="text-xl font-semibold text-gray-900">Options Trading</h1>
           </div>
           <nav className="flex-1 space-y-1 px-2 py-4">
-            <a
+            <button
               onClick={() => handleNavigation('/dashboard')}
-              className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer ${
+              className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer w-full text-left ${
                 isActiveRoute('/dashboard') 
                   ? 'text-gray-900 bg-gray-100' 
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
@@ -102,10 +102,10 @@ const Layout = ({ children }) => {
             >
               <BarChart3 className="mr-3 h-5 w-5 text-gray-500" />
               Dashboard
-            </a>
-            <a
+            </button>
+            <button
               onClick={() => handleNavigation('/historical')}
-              className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer ${
+              className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer w-full text-left ${
                 isActiveRoute('/historical') 
                   ? 'text-gray-900 bg-gray-100' 
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
@@ -113,11 +113,11 @@ const Layout = ({ children }) => {
             >
               <History className="mr-3 h-5 w-5 text-gray-500" />
               Historical Backtesting
-            </a>
+            </button>
             {user?.is_admin && (
-              <a
+              <button
                 onClick={() => handleNavigation('/admin')}
-                className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer ${
+                className={`group flex items-center px-2 py-2 text-sm font-medium rounded-md cursor-pointer w-full text-left ${
                   isActiveRoute('/admin') 
                     ? 'text-gray-900 bg-gray-100' 
                     : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
@@ -125,7 +125,7 @@ const Layout = ({ children }) => {
               >
                 <Shield className="mr-3 h-5 w-5 text-gray-500" />
                 Admin Panel
-              </a>
+              </button>
             )}
           </nav>
         </div>

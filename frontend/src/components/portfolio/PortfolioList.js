@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import axios from 'axios';
-import { Plus, Edit, Trash2, Eye } from 'lucide-react';
+import { Plus, Trash2, Eye } from 'lucide-react';
 
 const PortfolioList = ({ onSelectPortfolio }) => {
   const [showCreateForm, setShowCreateForm] = useState(false);

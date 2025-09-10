@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from 'react-query';
 import axios from 'axios';
-import { Calendar, Play, BarChart3, Download, AlertCircle, CheckCircle, XCircle, X } from 'lucide-react';
+import { Play, BarChart3, Download, AlertCircle, CheckCircle, XCircle, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const HistoricalBacktest = () => {
@@ -1392,7 +1392,6 @@ const BacktestResults = ({ backtest, onClose }) => {
                         try {
                           // Calculate LTP from leg_value: leg_value = action_sign * ltp * lots * lot_size
                           const lotSize = leg.index_name === 'NIFTY' ? 75 : 20;
-                          const actionSign = leg.action === 'Buy' ? -1 : 1;
                           
                           // Ensure we get a positive LTP by taking absolute value of legValue
                           // since legValue is already signed based on action
