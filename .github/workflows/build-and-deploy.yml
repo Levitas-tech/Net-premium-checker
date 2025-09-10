@@ -29,6 +29,14 @@ jobs:
         cd frontend
         npm run build
         
+    - name: Commit built files
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add frontend/build/
+        git commit -m "Update frontend build" || exit 0
+        git push origin master
+        
     - name: Deploy to server
       uses: appleboy/ssh-action@v0.1.5
       with:
