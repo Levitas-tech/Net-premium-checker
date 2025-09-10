@@ -34,7 +34,7 @@ jobs:
       with:
         host: ${{ secrets.HOST }}
         username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.SSH_KEY }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
         script: |
           cd /opt/net-premium-checker
           echo "Pulling latest changes..."
