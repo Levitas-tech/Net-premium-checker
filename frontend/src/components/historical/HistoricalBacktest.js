@@ -1369,18 +1369,7 @@ const BacktestResults = ({ backtest, onClose }) => {
                         legValue = result.leg_values[legIndex];
                         legId = legIndex;
                       }
-                      // Method 4: Try to find by matching leg properties
-                      else if (result.leg_values && typeof result.leg_values === 'object') {
-                        // Look for any key that might contain this leg's data
-                        const legKeys = Object.keys(result.leg_values);
-                        for (const key of legKeys) {
-                          // This is a fallback - we'll use the first available leg value
-                          // In a real scenario, the backend should provide proper mapping
-                          legValue = result.leg_values[key];
-                          legId = key;
-                          break;
-                        }
-                      }
+                      // Method 4: No fallback - if we can't find the specific leg data, it's missing
                       
                       let ltp = 'N/A';
                       let ltpClass = 'text-gray-500';
@@ -1388,7 +1377,8 @@ const BacktestResults = ({ backtest, onClose }) => {
                       // Debug logging to understand data structure
                       console.log('Leg:', leg, 'LegIndex:', legIndex, 'LegId found:', legId, 'LegValues:', result.leg_values, 'LegValue:', legValue);
                       
-                      if (legValue !== undefined && legValue !== null && legValue !== 0) {
+                      // Only show LTP if we have valid data for this specific leg
+                      if (legValue !== undefined && legValue !== null && legValue !== 0 && legId !== null) {
                         try {
                           // Calculate LTP from leg_value: leg_value = action_sign * ltp * lots * lot_size
                           const lotSize = leg.index_name === 'NIFTY' ? 75 : 20;
@@ -1402,6 +1392,10 @@ const BacktestResults = ({ backtest, onClose }) => {
                           ltp = 'Error';
                           ltpClass = 'text-red-500';
                         }
+                      } else {
+                        // Handle missing data - show N/A with appropriate styling
+                        ltp = 'N/A';
+                        ltpClass = 'text-gray-400 italic';
                       }
                       
                       return (

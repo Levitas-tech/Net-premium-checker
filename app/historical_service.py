@@ -247,6 +247,26 @@ class HistoricalBacktestService:
     def create_backtest(self, db: Session, user_id: int, backtest_data: HistoricalBacktestCreate) -> HistoricalBacktest:
         """Create a new historical backtest"""
         try:
+            # Validate that all legs have data available before creating backtest
+            missing_data_legs = []
+            for leg_data in backtest_data.legs:
+                # Check if data exists for this leg
+                data = self.get_historical_data(
+                    leg_data.index_name, 
+                    leg_data.strike, 
+                    leg_data.option_type, 
+                    leg_data.expiry, 
+                    backtest_data.backtest_date, 
+                    backtest_data.backtest_date
+                )
+                if not data:
+                    missing_data_legs.append(f"{leg_data.index_name} {leg_data.strike} {leg_data.option_type}")
+            
+            if missing_data_legs:
+                error_msg = f"No historical data available for: {', '.join(missing_data_legs)}"
+                logger.warning(f"Backtest creation failed: {error_msg}")
+                raise ValueError(error_msg)
+            
             # Create backtest record
             backtest = HistoricalBacktest(
                 user_id=user_id,
@@ -354,6 +374,11 @@ class HistoricalBacktestService:
                         logger.info(f"Calculated leg_value: {leg_value}")
                         net_premium += leg_value
                         leg_values[str(leg.id)] = leg_value
+                    else:
+                        # Handle missing data - set leg value to 0 and log warning
+                        logger.warning(f"No data found for leg {leg.id} ({leg.index_name} {leg.strike} {leg.option_type}) at timestamp {timestamp}")
+                        leg_values[str(leg.id)] = 0.0
+                        # Don't add to net_premium since there's no data
                 
                 # Create result record
                 result = HistoricalBacktestResult(
